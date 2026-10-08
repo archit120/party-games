@@ -1,25 +1,271 @@
-import { randomInt, randomUUID } from 'node:crypto';
-export const roles = ['Duke','Assassin','Captain','Ambassador','Contessa'];
-export const actions = {income:{},aid:{blocks:['Duke']},tax:{role:'Duke'},steal:{role:'Captain',target:true,blocks:['Captain','Ambassador']},exchange:{role:'Ambassador'},assassinate:{role:'Assassin',cost:3,target:true,blocks:['Contessa']},coup:{cost:7,target:true}};
-const shuffle = a => {for(let i=a.length-1;i>0;i--){const j=randomInt(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;};
-export const living = p => p.cards.some(c=>!c.revealed);
-export function player(name){return {id:randomUUID(),token:randomUUID(),name,coins:2,cards:[]};}
-export function create(code,name){const p=player(name);return {code,host:p.id,players:[p],phase:'lobby',rev:0,log:[],updated:Date.now()};}
-const log=(g,s)=>{g.log.push(s);g.log=g.log.slice(-100);};
-const need=(b,s='That move is not available.')=>{if(!b)throw Error(s);};
-function next(g){delete g.pending;delete g.loss;delete g.exchange;const alive=g.players.filter(living);if(alive.length===1){g.phase='finished';g.winner=alive[0].id;log(g,`${alive[0].name} wins.`);return;}do{g.turn=(g.turn+1)%g.players.length;}while(!living(g.players[g.turn]));g.phase='turn';}
-function lose(g,id,after){if(!living(g.players.find(p=>p.id===id)))return resume(g,after);g.phase='loss';g.loss={id,after};}
-function resume(g,after){if(after==='end')next(g);if(after==='block')blockWindow(g);if(after==='resolve')resolve(g);}
-function blockWindow(g){const q=g.pending,a=actions[q.type];if(a.blocks && (!q.target||living(g.players.find(p=>p.id===q.target)))){g.phase='block';q.passed=[];}else resolve(g);}
-function resolve(g){const q=g.pending,p=g.players.find(p=>p.id===q.actor),t=g.players.find(p=>p.id===q.target);if(q.type==='income')p.coins++;if(q.type==='aid')p.coins+=2;if(q.type==='tax')p.coins+=3;if(q.type==='steal'&&living(t)){const n=Math.min(2,t.coins);t.coins-=n;p.coins+=n;}if(['coup','assassinate'].includes(q.type)&&living(t))return lose(g,t.id,'end');if(q.type==='exchange'){g.exchange={id:p.id,cards:[...p.cards.filter(c=>!c.revealed).map(c=>c.role),g.deck.pop(),g.deck.pop()],count:p.cards.filter(c=>!c.revealed).length};g.phase='exchange';return;}next(g);}
-function responders(g){const q=g.pending;if(g.phase==='claim')return g.players.filter(p=>living(p)&&p.id!==q.actor);if(g.phase==='block')return g.players.filter(p=>living(p)&&p.id!==q.actor&&(!q.target||p.id===q.target));if(g.phase==='blockClaim')return g.players.filter(p=>living(p)&&p.id!==q.blocker);return [];}
-export function move(g,id,type,data={}){const p=g.players.find(p=>p.id===id);need(p);if(type==='start'){need(g.phase==='lobby'&&g.host===id&&g.players.length>=2);g.deck=shuffle(roles.flatMap(r=>[r,r,r]));for(const x of g.players){x.cards=[{role:g.deck.pop(),revealed:false},{role:g.deck.pop(),revealed:false}];x.coins=g.players.length===2&&x===g.players[0]?1:2;}g.turn=0;g.phase='turn';log(g,'The game begins.');}
-else if(type==='rematch'){need(g.phase==='finished'&&g.host===id);g.phase='lobby';delete g.winner;for(const x of g.players){x.cards=[];x.coins=2;}log(g,'A new lobby is open.');}
-else if(g.phase==='turn'){need(g.players[g.turn].id===id&&Object.hasOwn(actions,type));const a=actions[type];need(p.coins<10||type==='coup','At 10 coins, you must coup.');need(p.coins>=(a.cost||0),'Not enough coins.');if(a.target)need(g.players.some(x=>x.id===data.target&&x.id!==id&&living(x)),'Choose a living opponent.');p.coins-=a.cost||0;g.pending={actor:id,type,target:a.target?data.target:null,passed:[]};log(g,`${p.name} chooses ${type}${a.target?' against '+g.players.find(x=>x.id===data.target).name:''}.`);if(a.role)g.phase='claim';else blockWindow(g);}
-else if(['claim','block','blockClaim'].includes(g.phase)){const q=g.pending;need(responders(g).some(x=>x.id===id)&&!q.passed.includes(id));if(type==='pass'){q.passed.push(id);if(responders(g).every(x=>q.passed.includes(x.id))){if(g.phase==='claim')blockWindow(g);else if(g.phase==='block')resolve(g);else next(g);}}
-else if(type==='block'){need(g.phase==='block'&&actions[q.type].blocks.includes(data.role));q.blocker=id;q.blockRole=data.role;q.passed=[];g.phase='blockClaim';log(g,`${p.name} blocks with ${data.role}.`);}
-else if(type==='challenge'){need(g.phase==='claim'||g.phase==='blockClaim');const isBlock=g.phase==='blockClaim',defender=g.players.find(x=>x.id===(isBlock?q.blocker:q.actor)),role=isBlock?q.blockRole:actions[q.type].role;const card=defender.cards.find(c=>!c.revealed&&c.role===role);log(g,`${p.name} challenges ${defender.name}'s ${role}. ${card?'The claim is true.':'The claim was a bluff.'}`);if(card){g.deck.push(card.role);shuffle(g.deck);card.role=g.deck.pop();lose(g,id,isBlock?'end':'block');}else lose(g,defender.id,isBlock?'resolve':'end');}else need(false);}
-else if(g.phase==='loss'){need(type==='reveal'&&g.loss.id===id);need(Number.isInteger(data.index)&&p.cards[data.index]&&!p.cards[data.index].revealed);const after=g.loss.after;p.cards[data.index].revealed=true;log(g,`${p.name} reveals ${p.cards[data.index].role}.`);delete g.loss;resume(g,after);}
-else if(g.phase==='exchange'){need(type==='keep'&&g.exchange.id===id);const e=g.exchange;need(Array.isArray(data.indices)&&data.indices.length===e.count&&new Set(data.indices).size===e.count&&data.indices.every(i=>Number.isInteger(i)&&i>=0&&i<e.cards.length));p.cards=[...p.cards.filter(c=>c.revealed),...data.indices.map(i=>({role:e.cards[i],revealed:false}))];g.deck.push(...e.cards.filter((_,i)=>!data.indices.includes(i)));shuffle(g.deck);next(g);}
-else need(false);g.rev++;g.updated=Date.now();}
-export function view(g,id){const me=g.players.find(p=>p.id===id);need(me);const result={code:g.code,host:g.host,me:id,phase:g.phase,rev:g.rev,turn:g.players[g.turn]?.id,winner:g.winner,log:g.log,players:g.players.map(p=>({id:p.id,name:p.name,coins:p.coins,cards:p.cards.map(c=>({revealed:c.revealed,role:c.revealed||p.id===id?c.role:null}))})),pending:g.pending,loss:g.loss?{id:g.loss.id}:null};if(g.exchange?.id===id)result.exchange=g.exchange;result.canRespond=responders(g).some(p=>p.id===id)&&!g.pending?.passed.includes(id);return result;}
+import { randomInt, randomUUID } from "node:crypto";
+export const roles = ["Duke", "Assassin", "Captain", "Ambassador", "Contessa"];
+export const actions = {
+  income: {},
+  aid: { blocks: ["Duke"] },
+  tax: { role: "Duke" },
+  steal: { role: "Captain", target: true, blocks: ["Captain", "Ambassador"] },
+  exchange: { role: "Ambassador" },
+  assassinate: {
+    role: "Assassin",
+    cost: 3,
+    target: true,
+    blocks: ["Contessa"],
+  },
+  coup: { cost: 7, target: true },
+};
+const shuffle = (a) => {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+export const living = (p) => p.cards.some((c) => !c.revealed);
+export function player(name) {
+  return { id: randomUUID(), token: randomUUID(), name, coins: 2, cards: [] };
+}
+export function create(code, name) {
+  const p = player(name);
+  return {
+    code,
+    host: p.id,
+    players: [p],
+    phase: "lobby",
+    rev: 0,
+    log: [],
+    updated: Date.now(),
+  };
+}
+const log = (g, s) => {
+  g.log.push(s);
+  g.log = g.log.slice(-100);
+};
+const need = (b, s = "That move is not available.") => {
+  if (!b) throw Error(s);
+};
+function next(g) {
+  delete g.pending;
+  delete g.loss;
+  delete g.exchange;
+  const alive = g.players.filter(living);
+  if (alive.length === 1) {
+    g.phase = "finished";
+    g.winner = alive[0].id;
+    log(g, `${alive[0].name} wins.`);
+    return;
+  }
+  do {
+    g.turn = (g.turn + 1) % g.players.length;
+  } while (!living(g.players[g.turn]));
+  g.phase = "turn";
+}
+function lose(g, id, after) {
+  if (!living(g.players.find((p) => p.id === id))) return resume(g, after);
+  g.phase = "loss";
+  g.loss = { id, after };
+}
+function resume(g, after) {
+  if (after === "end") next(g);
+  if (after === "block") blockWindow(g);
+  if (after === "resolve") resolve(g);
+}
+function blockWindow(g) {
+  const q = g.pending,
+    a = actions[q.type];
+  if (
+    a.blocks &&
+    (!q.target || living(g.players.find((p) => p.id === q.target)))
+  ) {
+    g.phase = "block";
+    q.passed = [];
+  } else resolve(g);
+}
+function resolve(g) {
+  const q = g.pending,
+    p = g.players.find((p) => p.id === q.actor),
+    t = g.players.find((p) => p.id === q.target);
+  if (q.type === "income") p.coins++;
+  if (q.type === "aid") p.coins += 2;
+  if (q.type === "tax") p.coins += 3;
+  if (q.type === "steal" && living(t)) {
+    const n = Math.min(2, t.coins);
+    t.coins -= n;
+    p.coins += n;
+  }
+  if (["coup", "assassinate"].includes(q.type) && living(t))
+    return lose(g, t.id, "end");
+  if (q.type === "exchange") {
+    g.exchange = {
+      id: p.id,
+      cards: [
+        ...p.cards.filter((c) => !c.revealed).map((c) => c.role),
+        g.deck.pop(),
+        g.deck.pop(),
+      ],
+      count: p.cards.filter((c) => !c.revealed).length,
+    };
+    g.phase = "exchange";
+    return;
+  }
+  next(g);
+}
+function responders(g) {
+  const q = g.pending;
+  if (g.phase === "claim")
+    return g.players.filter((p) => living(p) && p.id !== q.actor);
+  if (g.phase === "block")
+    return g.players.filter(
+      (p) => living(p) && p.id !== q.actor && (!q.target || p.id === q.target),
+    );
+  if (g.phase === "blockClaim")
+    return g.players.filter((p) => living(p) && p.id !== q.blocker);
+  return [];
+}
+export function move(g, id, type, data = {}) {
+  const p = g.players.find((p) => p.id === id);
+  need(p);
+  if (type === "start") {
+    need(g.phase === "lobby" && g.host === id && g.players.length >= 2);
+    g.deck = shuffle(roles.flatMap((r) => [r, r, r]));
+    for (const x of g.players) {
+      x.cards = [
+        { role: g.deck.pop(), revealed: false },
+        { role: g.deck.pop(), revealed: false },
+      ];
+      x.coins = g.players.length === 2 && x === g.players[0] ? 1 : 2;
+    }
+    g.turn = 0;
+    g.phase = "turn";
+    log(g, "The game begins.");
+  } else if (type === "rematch") {
+    need(g.phase === "finished" && g.host === id);
+    g.phase = "lobby";
+    delete g.winner;
+    for (const x of g.players) {
+      x.cards = [];
+      x.coins = 2;
+    }
+    log(g, "A new lobby is open.");
+  } else if (g.phase === "turn") {
+    need(g.players[g.turn].id === id && Object.hasOwn(actions, type));
+    const a = actions[type];
+    need(p.coins < 10 || type === "coup", "At 10 coins, you must coup.");
+    need(p.coins >= (a.cost || 0), "Not enough coins.");
+    if (a.target)
+      need(
+        g.players.some((x) => x.id === data.target && x.id !== id && living(x)),
+        "Choose a living opponent.",
+      );
+    p.coins -= a.cost || 0;
+    g.pending = {
+      actor: id,
+      type,
+      target: a.target ? data.target : null,
+      passed: [],
+    };
+    log(
+      g,
+      `${p.name} chooses ${type}${a.target ? " against " + g.players.find((x) => x.id === data.target).name : ""}.`,
+    );
+    if (a.role) g.phase = "claim";
+    else blockWindow(g);
+  } else if (["claim", "block", "blockClaim"].includes(g.phase)) {
+    const q = g.pending;
+    need(responders(g).some((x) => x.id === id) && !q.passed.includes(id));
+    if (type === "pass") {
+      q.passed.push(id);
+      if (responders(g).every((x) => q.passed.includes(x.id))) {
+        if (g.phase === "claim") blockWindow(g);
+        else if (g.phase === "block") resolve(g);
+        else next(g);
+      }
+    } else if (type === "block") {
+      need(g.phase === "block" && actions[q.type].blocks.includes(data.role));
+      q.blocker = id;
+      q.blockRole = data.role;
+      q.passed = [];
+      g.phase = "blockClaim";
+      log(g, `${p.name} blocks with ${data.role}.`);
+    } else if (type === "challenge") {
+      need(g.phase === "claim" || g.phase === "blockClaim");
+      const isBlock = g.phase === "blockClaim",
+        defender = g.players.find(
+          (x) => x.id === (isBlock ? q.blocker : q.actor),
+        ),
+        role = isBlock ? q.blockRole : actions[q.type].role;
+      const card = defender.cards.find((c) => !c.revealed && c.role === role);
+      log(
+        g,
+        `${p.name} challenges ${defender.name}'s ${role}. ${card ? "The claim is true." : "The claim was a bluff."}`,
+      );
+      if (card) {
+        g.deck.push(card.role);
+        shuffle(g.deck);
+        card.role = g.deck.pop();
+        lose(g, id, isBlock ? "end" : "block");
+      } else lose(g, defender.id, isBlock ? "resolve" : "end");
+    } else need(false);
+  } else if (g.phase === "loss") {
+    need(type === "reveal" && g.loss.id === id);
+    need(
+      Number.isInteger(data.index) &&
+        p.cards[data.index] &&
+        !p.cards[data.index].revealed,
+    );
+    const after = g.loss.after;
+    p.cards[data.index].revealed = true;
+    log(g, `${p.name} reveals ${p.cards[data.index].role}.`);
+    delete g.loss;
+    resume(g, after);
+  } else if (g.phase === "exchange") {
+    need(type === "keep" && g.exchange.id === id);
+    const e = g.exchange;
+    need(
+      Array.isArray(data.indices) &&
+        data.indices.length === e.count &&
+        new Set(data.indices).size === e.count &&
+        data.indices.every(
+          (i) => Number.isInteger(i) && i >= 0 && i < e.cards.length,
+        ),
+    );
+    p.cards = [
+      ...p.cards.filter((c) => c.revealed),
+      ...data.indices.map((i) => ({ role: e.cards[i], revealed: false })),
+    ];
+    g.deck.push(...e.cards.filter((_, i) => !data.indices.includes(i)));
+    shuffle(g.deck);
+    next(g);
+  } else need(false);
+  g.rev++;
+  g.updated = Date.now();
+}
+export function view(g, id) {
+  const me = g.players.find((p) => p.id === id);
+  need(me);
+  const result = {
+    code: g.code,
+    host: g.host,
+    me: id,
+    phase: g.phase,
+    rev: g.rev,
+    turn: g.players[g.turn]?.id,
+    winner: g.winner,
+    log: g.log,
+    players: g.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      coins: p.coins,
+      cards: p.cards.map((c) => ({
+        revealed: c.revealed,
+        role: c.revealed || p.id === id ? c.role : null,
+      })),
+    })),
+    pending: g.pending,
+    loss: g.loss ? { id: g.loss.id } : null,
+  };
+  if (g.exchange?.id === id) result.exchange = g.exchange;
+  result.canRespond =
+    responders(g).some((p) => p.id === id) && !g.pending?.passed.includes(id);
+  return result;
+}

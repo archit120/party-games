@@ -1,4 +1,56 @@
-import {chromium} from '/opt/browser-test/node_modules/playwright/index.mjs';
-import assert from 'node:assert/strict';
-const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
-try{const origin=process.env.CHECK_URL||'http://127.0.0.1:3001',errors=[];const a=await browser.newPage(),b=await browser.newPage({viewport:{width:390,height:844}});for(const p of [a,b])p.on('pageerror',e=>errors.push(e.message));await a.goto(origin);console.log((await a.locator('body').innerText()).slice(0,220));await a.locator('[name=name]').fill('Browser Alice');await a.getByRole('button',{name:'Enter the court'}).click();await a.getByRole('heading',{name:/Room [A-Z]{6}/}).waitFor();const url=a.url();await b.goto(url);await b.locator('[name=name]').fill('Browser Bob');await b.getByRole('button',{name:'Join room'}).click();await b.getByRole('heading',{name:/Room [A-Z]{6}/}).waitFor();await a.getByText('Browser Bob',{exact:false}).first().waitFor();await a.getByRole('button',{name:'Begin game'}).click();await a.getByRole('heading',{name:'Your move'}).waitFor();assert.equal(await a.locator('.card.known').count(),2);assert.equal(await a.locator('.card:not(.known)').count(),2);await a.getByRole('button',{name:'Tax',exact:false}).click();await b.getByRole('button',{name:'Allow claim',exact:true}).click();await b.getByRole('heading',{name:'Your move'}).waitFor();await b.getByRole('button',{name:'Income',exact:false}).click();await a.getByRole('heading',{name:'Your move'}).waitFor();await a.reload();await a.getByRole('heading',{name:'Your move'}).waitFor();await a.getByRole('button',{name:'Exchange',exact:false}).click();await b.getByRole('button',{name:'Allow claim',exact:true}).click();await a.getByRole('heading',{name:'Choose the cards to keep'}).waitFor();await a.locator('.choices input').nth(0).check();await a.locator('.choices input').nth(2).check();await a.getByRole('button',{name:'Keep selected cards'}).click();await b.getByRole('heading',{name:'Your move'}).waitFor();assert.equal(await b.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await b.screenshot({path:'/home/agent/coup/mobile.png',fullPage:true});await a.screenshot({path:'/home/agent/coup/table.png',fullPage:true});assert.deepEqual(errors,[]);console.log('PASS: two browsers, private hands, tax, income, exchange, reload, mobile layout; '+url);}finally{await browser.close();}
+import { chromium } from "/opt/browser-test/node_modules/playwright/index.mjs";
+import assert from "node:assert/strict";
+const browser = await chromium.launch({
+  executablePath: "/usr/bin/chromium",
+  headless: true,
+  args: ["--no-sandbox"],
+});
+try {
+  const origin = process.env.CHECK_URL || "http://127.0.0.1:3001",
+    errors = [];
+  const a = await browser.newPage(),
+    b = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  for (const p of [a, b]) p.on("pageerror", (e) => errors.push(e.message));
+  await a.goto(origin);
+  console.log((await a.locator("body").innerText()).slice(0, 220));
+  await a.locator("[name=name]").fill("Browser Alice");
+  await a.getByRole("button", { name: "Enter the court" }).click();
+  await a.getByRole("heading", { name: /Room [A-Z]{6}/ }).waitFor();
+  const url = a.url();
+  await b.goto(url);
+  await b.locator("[name=name]").fill("Browser Bob");
+  await b.getByRole("button", { name: "Join room" }).click();
+  await b.getByRole("heading", { name: /Room [A-Z]{6}/ }).waitFor();
+  await a.getByText("Browser Bob", { exact: false }).first().waitFor();
+  await a.getByRole("button", { name: "Begin game" }).click();
+  await a.getByRole("heading", { name: "Your move" }).waitFor();
+  assert.equal(await a.locator(".card.known").count(), 2);
+  assert.equal(await a.locator(".card:not(.known)").count(), 2);
+  await a.getByRole("button", { name: "Tax", exact: false }).click();
+  await b.getByRole("button", { name: "Allow claim", exact: true }).click();
+  await b.getByRole("heading", { name: "Your move" }).waitFor();
+  await b.getByRole("button", { name: "Income", exact: false }).click();
+  await a.getByRole("heading", { name: "Your move" }).waitFor();
+  await a.reload();
+  await a.getByRole("heading", { name: "Your move" }).waitFor();
+  await a.getByRole("button", { name: "Exchange", exact: false }).click();
+  await b.getByRole("button", { name: "Allow claim", exact: true }).click();
+  await a.getByRole("heading", { name: "Choose the cards to keep" }).waitFor();
+  await a.locator(".choices input").nth(0).check();
+  await a.locator(".choices input").nth(2).check();
+  await a.getByRole("button", { name: "Keep selected cards" }).click();
+  await b.getByRole("heading", { name: "Your move" }).waitFor();
+  assert.equal(
+    await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    true,
+  );
+  await b.screenshot({ path: "/home/agent/coup/mobile.png", fullPage: true });
+  await a.screenshot({ path: "/home/agent/coup/table.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  console.log(
+    "PASS: two browsers, private hands, tax, income, exchange, reload, mobile layout; " +
+      url,
+  );
+} finally {
+  await browser.close();
+}
