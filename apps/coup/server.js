@@ -1,3 +1,4 @@
+import { attachRoomSockets } from "../../packages/core/realtime.js";
 import { beginAction } from "../../packages/core/state.js";
 import http from "node:http";
 import { readFileSync, readdirSync, unlinkSync } from "node:fs";
@@ -19,11 +20,13 @@ for (const f of readdirSync(dir).filter((f) => /^[A-Z]{6}\.json$/.test(f))) {
   if (Date.now() - g.updated < ttl) rooms.set(g.code, g);
   else unlinkSync(`${dir}/${f}`);
 }
+let realtime;
 const save = (g) => {
   g.updated = Date.now();
   const path = `${dir}/${g.code}.json`;
   writeJSON(path, g);
   rooms.set(g.code, g);
+  realtime?.publish();
 };
 const rates = new Map();
 function rate(ip) {
@@ -41,6 +44,7 @@ setInterval(() => {
   for (const [code, g] of rooms)
     if (Date.now() - g.updated > ttl) {
       rooms.delete(code);
+      realtime?.publish();
       unlinkSync(`${dir}/${code}.json`);
     }
 }, 60000).unref();
@@ -114,6 +118,7 @@ const server = http.createServer(async (req, res) => {
         g.rev++;
         if (!g.players.length) {
           rooms.delete(code);
+          realtime?.publish();
           unlinkSync(`${dir}/${code}.json`);
         } else save(g);
         return json(200, { left: true });
@@ -126,6 +131,10 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     json(e.status || 400, { error: e.message });
   }
+});
+realtime = attachRoomSockets(server, {
+  getRoom: (code) => rooms.get(code),
+  view,
 });
 server.listen(Number(process.env.PORT || 3000), "0.0.0.0", () =>
   console.log("Coup listening on " + server.address().port),

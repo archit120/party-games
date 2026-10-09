@@ -3,7 +3,7 @@ import {
   readStored,
   request,
   newerState,
-  createPollGate,
+  createRoomTransport,
 } from "/shared/client.js";
 const $ = (s) => document.querySelector(s),
   app = $("#app");
@@ -730,11 +730,12 @@ function render() {
       }),
   );
 }
-const pollGate = createPollGate();
+const pollGate = createRoomTransport();
 async function poll() {
   const current = session;
   return pollGate({
     session: current,
+    credentials: { code: current?.code, token: current?.token },
     getSession: () => session,
     load: () => api(`/api/rooms/${current.code}`),
     onState: async (fresh) => {

@@ -10,9 +10,10 @@ Three independently runnable multiplayer games in one Node.js repository:
 
 ## Run
 
-Requires Node.js 22 or later. No third-party runtime dependencies.
+Requires Node.js 22 or later. WebSocket support uses the `ws` package.
 
 ```sh
+npm ci
 npm test
 npm run start:undercover
 # Or choose an app and port:
@@ -38,7 +39,7 @@ Game outcomes stay separate: Secret Hitler uses a strict yes/no majority; Underc
 
 Set `OPENROUTER_API_KEY` in the server environment, never in browser assets or source files. `AI_MODEL` defaults to `z-ai/glm-5.3-flash`. Secret Hitler retains low reasoning; Undercover requests medium reasoning for gameplay and chat.
 
-Each app has an independent ledger. `AI_DAILY_BUDGET_USD` defaults to $0.50 per UTC day, with limits of 120 paid requests per room and 1,000 per day. Reservations persist before requests; missing costs retain their reservation. Workers process two rooms concurrently, one request chain per room, pause after 60 seconds without a human poll, and discard obsolete replies.
+Each app has an independent ledger. `AI_DAILY_BUDGET_USD` defaults to $0.50 per UTC day, with limits of 120 paid requests per room and 1,000 per day. Reservations persist before requests; missing costs retain their reservation. Workers process two rooms concurrently, one request chain per room, pause after 60 seconds without a human poll or WebSocket heartbeat, and discard obsolete replies.
 
 Undercover bots see only their word (or none), public clues, public discussion, and revealed roles. They generate clues freely; there is no predefined clue bank. One-word clues are checked for direct word disclosure and repetition; a separately budgeted model review assesses candidates. Bots discuss completed clue rounds and answer human messages, preferring named bots. They cannot hear external voice calls. Chat pauses during clue turns, ballots and Mr. White guesses; eliminated humans observe silently until the game ends. AI table talk can be toggled in the lobby.
 
@@ -84,3 +85,5 @@ Browser tests create isolated test rooms. Bot/chat model checks require a config
 ## Attribution
 
 See LICENSE and individual app documentation. Shared components extracted from the Secret Hitler adaptation retain its CC BY-NC-SA 4.0 license. Secret Hitler is by Mike Boxleiter, Tommy Maranges and Mac Schubert. Coup is designed by Rikki Tahta. Undercover is an original implementation of the related-word social deduction format with an original UI and a small hand-written word-pair list. No official game art is included.
+
+Room updates use authenticated WebSockets shared by all three apps. Each connection receives only its seat-specific view. Actions remain revision-checked HTTP requests. Polling runs in parallel every 15 seconds while connected, returning to the normal 0.5–1.2 second cadence during outages. Reconnects use exponential backoff and receive a fresh snapshot; revision checks reject stale updates from either transport. Reverse proxies must forward WebSocket upgrade headers for `/api/live`.

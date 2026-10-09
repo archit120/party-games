@@ -1,3 +1,4 @@
+import { attachRoomSockets } from "./realtime.js";
 import { beginAction } from "./state.js";
 import { sameBallot, hasVoted } from "./ballots.js";
 import { createBudget } from "../ai/budget.js";
@@ -25,7 +26,11 @@ export function startRoomServer({
     file = `${dir}/rooms.json`,
     rooms = readJSON(file),
     rates = new Map();
-  const save = () => writeJSON(file, rooms);
+  let realtime;
+  const save = () => {
+    writeJSON(file, rooms);
+    realtime?.publish();
+  };
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.AI_MODEL || ai?.DEFAULT_AI_MODEL;
   const reserveRequest = createBudget({
@@ -265,6 +270,11 @@ export function startRoomServer({
       if (r.time < Date.now() - 60000) rates.delete(ip);
     save();
   }, 60000).unref();
+  realtime = attachRoomSockets(server, {
+    getRoom: (code) => rooms[code],
+    view,
+    touch: (code) => controller?.touch(code),
+  });
   server.listen(process.env.PORT || 3000, "0.0.0.0", () =>
     console.log(`${title} listening on ${server.address().port}`),
   );

@@ -2,7 +2,7 @@ import {
   escapeHTML as esc,
   request,
   newerState,
-  createPollGate,
+  createRoomTransport,
 } from "/shared/client.js";
 const app = document.querySelector("#app"),
   error = document.querySelector("#error");
@@ -249,12 +249,13 @@ async function act(type, data) {
     busy = false;
   }
 }
-const pollGate = createPollGate();
+const pollGate = createRoomTransport();
 async function poll() {
-  if (!token || busy) return;
+  if (busy) return;
   const current = token;
   return pollGate({
     session: current,
+    credentials: { code, token: current },
     getSession: () => token,
     load: () => api("state?code=" + code),
     onState: (next) => {

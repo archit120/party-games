@@ -1,3 +1,4 @@
+import { attachRoomSockets } from "../../packages/core/realtime.js";
 import { beginAction } from "../../packages/core/state.js";
 import { sameBallot, hasVoted } from "../../packages/core/ballots.js";
 import { createBudget } from "../../packages/ai/budget.js";
@@ -34,8 +35,10 @@ const dir = process.env.DATA_DIR || "./data";
 ensureDataDir(dir);
 const file = `${dir}/rooms.json`;
 let rooms = readJSON(file);
+let realtime;
 function save() {
   writeJSON(file, rooms);
+  realtime?.publish();
 }
 const aiKey = process.env.OPENROUTER_API_KEY;
 const aiModel = process.env.AI_MODEL || DEFAULT_AI_MODEL;
@@ -304,6 +307,11 @@ setInterval(() => {
   save();
   rates.clear();
 }, 3600000).unref();
+realtime = attachRoomSockets(server, {
+  getRoom: (code) => rooms[code],
+  view,
+  touch: (code) => aiController.touch(code),
+});
 server.listen(process.env.PORT || 3000, "0.0.0.0", () =>
   console.log(`Secret Hitler listening on ${server.address().port}`),
 );
