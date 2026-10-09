@@ -24,6 +24,10 @@ function error(e) {
 async function api(path, body) {
   return request(path, body, session?.token);
 }
+async function stateAPI(path, body) {
+  const fresh = await api(path, body);
+  return newerState(state, fresh) ? fresh : state;
+}
 function savedSeats() {
   return readStored("assembly-saved-seats", {});
 }
@@ -489,7 +493,9 @@ async function sendChat(event) {
   if (busy || !chatDraft.trim()) return;
   busy = true;
   try {
-    state = await api(`/api/rooms/${state.code}/chat`, { text: chatDraft });
+    state = await stateAPI(`/api/rooms/${state.code}/chat`, {
+      text: chatDraft,
+    });
     chatDraft = "";
     render();
   } catch (e) {
@@ -503,7 +509,10 @@ async function manageBots(operation, extra = {}) {
   if (busy) return;
   busy = true;
   try {
-    state = await api(`/api/rooms/${state.code}/bots`, { operation, ...extra });
+    state = await stateAPI(`/api/rooms/${state.code}/bots`, {
+      operation,
+      ...extra,
+    });
     render();
   } catch (e) {
     error(e);
@@ -616,7 +625,9 @@ function render() {
         return;
       busy = true;
       try {
-        state = await api(`/api/rooms/${s.code}/kick`, { target: target.id });
+        state = await stateAPI(`/api/rooms/${s.code}/kick`, {
+          target: target.id,
+        });
         render();
       } catch (e) {
         error(e);
@@ -699,7 +710,7 @@ function render() {
         busy = true;
         el.disabled = true;
         try {
-          state = await api(`/api/rooms/${s.code}/action`, {
+          state = await stateAPI(`/api/rooms/${s.code}/action`, {
             type,
             payload,
             revision: s.revision,

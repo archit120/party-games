@@ -9,8 +9,7 @@ const app = document.querySelector("#app"),
 let state = null,
   busy = false,
   target = "",
-  selected = [],
-  polling = false;
+  selected = [];
 const getSeats = () => {
   try {
     return JSON.parse(localStorage.getItem("coup-seats") || "{}");
@@ -241,7 +240,7 @@ async function act(type, data) {
       history.replaceState({}, "", "/");
       entrance();
     } else {
-      state = result;
+      if (newerState(state, result, "rev")) state = result;
       render();
     }
   } catch (e) {

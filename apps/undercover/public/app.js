@@ -10,7 +10,6 @@ const app = document.querySelector("#app"),
 let state = null,
   session = null,
   busy = false,
-  polling = false,
   showSecret = false,
   draft = "",
   recovery = null;
@@ -264,7 +263,7 @@ async function roomAction(type, body) {
       session = null;
       state = null;
       history.replaceState({}, "", "/");
-    } else state = r;
+    } else if (newerState(state, r)) state = r;
     render();
   } catch (e) {
     fail(e);
@@ -276,13 +275,14 @@ async function act(type, payload) {
   if (busy) return;
   busy = true;
   try {
-    state = await api(`/api/rooms/${session.code}/action`, {
+    const fresh = await api(`/api/rooms/${session.code}/action`, {
       type,
       payload,
       revision: state.revision,
       voteId: state.voteId,
       gameId: state.gameId,
     });
+    if (newerState(state, fresh)) state = fresh;
     error.textContent = "";
     if (["clue", "restart", "start"].includes(type)) {
       draft = "";
