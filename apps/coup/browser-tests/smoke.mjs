@@ -44,8 +44,8 @@ try {
     await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     true,
   );
-  await b.screenshot({ path: "/home/agent/coup/mobile.png", fullPage: true });
-  await a.screenshot({ path: "/home/agent/coup/table.png", fullPage: true });
+  await b.screenshot({ path: "/tmp/coup-mobile.png", fullPage: true });
+  await a.screenshot({ path: "/tmp/coup-table.png", fullPage: true });
   assert.deepEqual(errors, []);
   console.log(
     "PASS: two browsers, private hands, tax, income, exchange, reload, mobile layout; " +

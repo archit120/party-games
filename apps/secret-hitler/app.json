@@ -1,0 +1,17 @@
+{
+  "name": "secret-hitler",
+  "description": "Private multiplayer Secret Hitler",
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "health",
+        "path": "/health",
+        "attempts": 10,
+        "timeout": 5,
+        "wait": 2,
+        "port": 3000
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+import { create, player, action } from '../game.js';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import assert from 'node:assert/strict';
+const dir = await mkdtemp('/tmp/sh-discard-');
+const g = create('ABCDEF', 'Host');
+for(let i=1;i<5;i++) g.players.push(player('Player '+i));
+action(g,g.host,'start');
+g.president=0; g.chancellor=g.players[1].id; g.phase='president-discard';
+g.hand=['Liberal','Fascist','Fascist'];
+await writeFile(dir+'/rooms.json',JSON.stringify({ABCDEF:g}));
+const child=spawn(process.execPath,['server.js'],{cwd:new URL('..',import.meta.url),env:{...process.env,DATA_DIR:dir,PORT:'0',OPENROUTER_API_KEY:''},stdio:['ignore','pipe','pipe']});
+const [buf]=await once(child.stdout,'data');
+const base='http://127.0.0.1:'+String(buf).match(/listening on (\d+)/)[1];
+const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+const context=await browser.newContext({viewport:{width:390,height:844}});
+try {
+ const pages=[]; let actions=0; const errors=[];
+ for(const person of g.players.slice(0,3)) {
+  const page=await context.newPage();
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(r.url().endsWith('/action')) actions++;});
+  await page.goto(base);
+  await page.evaluate(s=>localStorage.setItem('assembly-session',JSON.stringify(s)),{code:g.code,token:person.token});
+  await page.goto(base+'/?room=ABCDEF');
+  await page.locator('.action.president-discard').waitFor(); pages.push(page);
+ }
+ const [pres,chanc,observer]=pages;
+ assert.equal(await observer.locator('[data-action="select-discard"]').count(),0);
+ await pres.locator('[data-action="select-discard"]').nth(0).click();
+ assert.match(await pres.locator('.discard-preview').innerText(),/Pass to Chancellor: Fascist \+ Fascist/);
+ assert.equal(actions,0);
+ await pres.locator('[data-action="cancel-discard"]').click();
+ assert.equal(await pres.locator('.discard-preview').count(),0);
+ await pres.locator('[data-action="select-discard"]').nth(1).click();
+ assert.match(await pres.locator('.discard-preview').innerText(),/Pass to Chancellor: Liberal \+ Fascist/);
+ await pres.locator('#compact-toggle').click();
+ assert.equal(await pres.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await pres.locator('[data-action="discard"]').click();
+ await chanc.locator('[data-action="select-discard"]').first().waitFor();
+ assert.equal(await pres.locator('.discard-preview').count(),0);
+ await chanc.locator('[data-action="select-discard"]').nth(1).click();
+ assert.match(await chanc.locator('.discard-preview').innerText(),/Enact as law: Liberal/);
+ assert.equal(actions,1);
+ await chanc.locator('[data-action="discard"]').click();
+ await chanc.locator('.action.nominate').waitFor();
+ assert.equal(actions,2);
+ const r=await fetch(base+'/api/rooms/ABCDEF',{headers:{Authorization:'Bearer '+g.players[0].token}});
+ assert.equal((await r.json()).Liberal,1);
+ assert.deepEqual(errors,[]);
+ console.log('PASS: select, cancel, change, confirm, private preview, mobile Compact, correct enacted policy');
+} finally { await context.close(); await browser.close(); child.kill(); await once(child,'exit'); await rm(dir,{recursive:true,force:true}); }

@@ -1,16 +1,16 @@
 import http from "node:http";
+import { readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { ensureDataDir, writeJSON } from "../../packages/core/storage.js";
 import {
-  readFileSync,
-  writeFileSync,
-  renameSync,
-  mkdirSync,
-  readdirSync,
-  unlinkSync,
-} from "node:fs";
-import { randomInt } from "node:crypto";
+  securityHeaders,
+  sendJSON,
+  readBody,
+  serveCoreAsset,
+} from "../../packages/core/http.js";
+import { roomCode, authenticate } from "../../packages/core/rooms.js";
 import { create, player, move, view } from "./game.js";
 const dir = process.env.DATA_DIR || "./data";
-mkdirSync(dir, { recursive: true, mode: 0o700 });
+ensureDataDir(dir);
 const rooms = new Map(),
   ttl = 7 * 86400000;
 for (const f of readdirSync(dir).filter((f) => /^[A-Z]{6}\.json$/.test(f))) {
@@ -21,8 +21,7 @@ for (const f of readdirSync(dir).filter((f) => /^[A-Z]{6}\.json$/.test(f))) {
 const save = (g) => {
   g.updated = Date.now();
   const path = `${dir}/${g.code}.json`;
-  writeFileSync(path + ".tmp", JSON.stringify(g), { mode: 0o600 });
-  renameSync(path + ".tmp", path);
+  writeJSON(path, g);
   rooms.set(g.code, g);
 };
 const rates = new Map();
@@ -50,23 +49,13 @@ const assets = {
   "/style.css": ["style.css", "text/css"],
 };
 const server = http.createServer(async (req, res) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Referrer-Policy", "same-origin");
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; style-src 'self'; script-src 'self'; frame-ancestors 'none'",
-  );
+  securityHeaders(res);
   const url = new URL(req.url, "http://localhost");
-  const json = (status, data) => {
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    });
-    res.end(JSON.stringify(data));
-  };
+  const json = (status, data) => sendJSON(res, status, data);
   try {
     if (req.method === "GET" && url.pathname === "/health")
       return json(200, { ok: true });
+    if (serveCoreAsset(url.pathname, res)) return;
     if (req.method === "GET" && assets[url.pathname]) {
       const [f, t] = assets[url.pathname];
       res.writeHead(200, { "Content-Type": t, "Cache-Control": "no-cache" });
@@ -75,17 +64,7 @@ const server = http.createServer(async (req, res) => {
     if (!url.pathname.startsWith("/api/"))
       return json(404, { error: "Not found" });
     let b = {};
-    if (req.method === "POST") {
-      const origin = req.headers.origin;
-      if (origin && new URL(origin).host !== req.headers.host)
-        return json(403, { error: "Invalid origin" });
-      let s = "";
-      for await (const chunk of req) {
-        s += chunk;
-        if (s.length > 8192) return json(413, { error: "Request too large" });
-      }
-      b = JSON.parse(s || "{}");
-    }
+    if (req.method === "POST") b = await readBody(req, 8192);
     if (
       req.method === "POST" &&
       ["/api/create", "/api/join"].includes(url.pathname)
@@ -97,12 +76,7 @@ const server = http.createServer(async (req, res) => {
       let g, p;
       if (url.pathname === "/api/create") {
         if (rooms.size >= 500) throw Error("Server is full. Try again later.");
-        let code;
-        do {
-          code = Array.from({ length: 6 }, () =>
-            String.fromCharCode(65 + randomInt(26)),
-          ).join("");
-        } while (rooms.has(code));
+        const code = roomCode((code) => rooms.has(code));
         g = create(code, name);
         p = g.players[0];
       } else {
@@ -122,8 +96,7 @@ const server = http.createServer(async (req, res) => {
     ).toUpperCase();
     const old = rooms.get(code);
     if (!old) throw Error("Room not found.");
-    const token = req.headers.authorization?.replace(/^Bearer /, "");
-    const p = old.players.find((p) => p.token === token);
+    const p = authenticate(old, req.headers.authorization);
     if (!p)
       return json(401, {
         error: "This seat is unavailable. Rejoin from the lobby.",
@@ -152,7 +125,7 @@ const server = http.createServer(async (req, res) => {
     }
     return json(404, { error: "Not found" });
   } catch (e) {
-    json(400, { error: e.message });
+    json(e.status || 400, { error: e.message });
   }
 });
 server.listen(Number(process.env.PORT || 3000), "0.0.0.0", () =>

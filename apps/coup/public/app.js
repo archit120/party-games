@@ -1,3 +1,4 @@
+import { escapeHTML as esc, request } from "/shared/client.js";
 const app = document.querySelector("#app"),
   error = document.querySelector("#error");
 let state = null,
@@ -5,14 +6,6 @@ let state = null,
   target = "",
   selected = [],
   polling = false;
-const esc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
 const getSeats = () => {
   try {
     return JSON.parse(localStorage.getItem("coup-seats") || "{}");
@@ -24,19 +17,7 @@ let code = new URL(location.href).searchParams.get("room")?.toUpperCase() || "",
   token = getSeats()[code]?.token;
 const name = (id) => state.players.find((p) => p.id === id)?.name || "Player";
 async function api(path, body) {
-  const r = await fetch("/api/" + path, {
-    method: body ? "POST" : "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: "Bearer " + token } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const data = await r
-    .json()
-    .catch(() => ({ error: "Connection interrupted. Try again." }));
-  if (!r.ok) throw Error(data.error);
-  return data;
+  return request("/api/" + path, body, token);
 }
 const button = (label, type, data = {}, extra = "") =>
   `<button ${extra} data-action="${type}" data-payload="${esc(JSON.stringify(data))}">${label}</button>`;

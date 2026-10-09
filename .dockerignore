@@ -1,4 +1,8 @@
 .git
-data
-node_modules
-test
+**/data
+**/node_modules
+**/test
+**/browser-tests
+*.png
+*.webm
+.env*

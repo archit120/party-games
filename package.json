@@ -1,11 +1,16 @@
 {
-  "name": "coup-table",
-  "version": "1.0.0",
+  "name": "party-games",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js && npm test --workspaces",
+    "start": "node launcher.js",
+    "start:secret-hitler": "npm start --workspace=secret-hitler-online",
+    "start:coup": "npm start --workspace=coup-table",
+    "start:undercover": "npm start --workspace=undercover"
   },
   "engines": {
     "node": ">=22"

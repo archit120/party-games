@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#182825" />
+    <title>Secret Hitler — The Assembly</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand">SH<span>THE ASSEMBLY</span></a
+      ><span class="edition">A GAME OF TRUST & TREACHERY</span>
+      <div class="header-actions">
+        <button
+          id="compact-toggle"
+          class="quiet"
+          aria-pressed="false"
+          title="Use a simpler, compact table"
+        >
+          Compact</button
+        ><button id="rules-toggle" class="quiet">How to play ↗</button>
+      </div>
+    </header>
+    <main id="app"></main>
+    <div id="error" role="alert"></div>
+    <dialog id="private-intelligence" aria-labelledby="intelligence-title">
+      <form method="dialog"><button class="quiet">Close ×</button></form>
+      <p class="eyebrow">FOR YOUR EYES ONLY</p>
+      <h2 id="intelligence-title">Private intelligence</h2>
+      <div id="intelligence-content"></div>
+    </dialog>
+    <dialog id="share-invite" aria-labelledby="share-title">
+      <form method="dialog"><button class="quiet">Close ×</button></form>
+      <h2 id="share-title">Invite your friends.</h2>
+      <p>Copy the selected link, or touch and hold it and choose Copy.</p>
+      <label for="invite-link">ROOM INVITE LINK</label>
+      <input id="invite-link" type="text" readonly />
+    </dialog>
+    <dialog id="seat-recovery" aria-labelledby="recovery-title">
+      <form method="dialog"><button class="quiet">Close ×</button></form>
+      <h2 id="recovery-title">Recover seat</h2>
+      <p>Send this link privately to this player only. It restores their existing seat and secret role without adding a player. Expires in 15 minutes or when you restart the game.</p>
+      <label for="recovery-link">PRIVATE SEAT LINK · SELECT AND COPY</label>
+      <input id="recovery-link" type="text" readonly />
+      <button id="copy-recovery">Copy private link</button>
+    </dialog>
+    <dialog id="rules">
+      <button id="rules-close" class="quiet">Close ×</button>
+      <p class="eyebrow">THE RULES OF THE TABLE</p>
+      <h2>Trust is a dangerous thing.</h2>
+      <p>
+        5–10 players. Everyone uses their own device. Talk in person or on a
+        voice call; keep your screen private.
+      </p>
+      <p>
+        <b>Liberals win</b> by enacting 5 Liberal policies or executing Hitler.
+        <b>Fascists win</b> with 6 Fascist policies, or by electing Hitler
+        Chancellor once 3 Fascist policies are on the board.
+      </p>
+      <p>
+        The President nominates an eligible Chancellor. Everyone votes secretly;
+        a strict majority elects the government. A tie fails. The President
+        draws 3 policies and discards 1; the Chancellor discards 1 and enacts
+        the other. Neither legislator may communicate during this session.
+      </p>
+      <p>
+        The last elected Chancellor cannot be nominated again immediately. With
+        more than 5 living players, the last elected President is also
+        ineligible. After 3 failed elections or accepted vetoes, the top policy
+        is enacted without a power and term limits clear. Only an enacted policy
+        resets the election tracker.
+      </p>
+      <p>
+        Fascist policies grant powers based on the starting player count.
+        Investigations reveal party membership, never Hitler’s identity; nobody
+        can be investigated twice. Special elections return to the regular
+        rotation afterward. Executed players cannot speak, vote, or hold office.
+      </p>
+      <p>
+        After 5 Fascist policies, the Chancellor may request a veto. The
+        President must agree; otherwise the Chancellor must enact a policy.
+        Accepted vetoes advance the election tracker.
+      </p>
+      <p>
+        Fascists know each other and Hitler. Hitler knows the Fascist only in
+        5–6 player games. You may lie about secret information.
+      </p>
+      <a
+        href="https://www.secrethitler.com/assets/Secret_Hitler_Rules.pdf"
+        target="_blank"
+        rel="noreferrer"
+        >Read the complete official rules ↗</a
+      >
+    </dialog>
+    <footer>
+      Independent, noncommercial digital adaptation of
+      <a href="https://www.secrethitler.com/">Secret Hitler</a> by Mike
+      Boxleiter, Tommy Maranges & Mac Schubert. Original interface and automated
+      rules.
+      <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/"
+        >CC BY-NC-SA 4.0</a
+      >.
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+# Undercover — Between the Lines
+
+3–12 players on separate devices. Create a room, invite friends, choose 1–3 Undercover players and optional Mr. White. Civilians must outnumber all impostors at the start (Mr. White therefore requires at least 5 players with one Undercover).
+
+Players privately reveal their words, take turns entering short clues, discuss, and cast private elimination votes. One tie triggers a runoff; a second tie starts another clue round. Civilians win when every impostor is eliminated; impostors win at parity. Eliminated Mr. White gets one exact case-insensitive guess at the civilian word. Host can restart after a win. Every character's word stays private until the game ends.
+
+Room links and seats survive refresh. The host can issue 15-minute private recovery links, remove lobby players, and transfer hosting by leaving the lobby. Keep recovery links private. No bots, timers, or voice chat are included. A missing player must return or recover their seat to continue.
+
+Run `npm run start:undercover` from the repo root. See [deployment and tests](../../README.md).
