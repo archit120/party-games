@@ -81,3 +81,9 @@ Undercover bots see only their assigned word (or no word), public clues, public 
 ## High-risk infrastructure checks
 
 Tests explicitly cover out-of-order poll responses, switching sessions while a poll is in flight, stale authentication errors, duplicate joins, private ballot participation, simultaneous votes with a shared revision, stale ballots after a runoff, illegal actions leaving room state unchanged, invalid origins, HTML proxy errors, persistence across restarts, and expiring/replaced recovery links. Game-specific suites cover private-view filtering; the shared transport never receives raw room state for serialization.
+
+## Migration checkpoint (2026-10-09)
+
+Canonical repository: https://github.com/archit120/party-games (private). Pre-migration Secret Hitler deployed commit: `7319389118433f7ce6f4d726c7352f2441e2b352` on its retained Dokku `master` branch. Its deploy branch is now `main`. Pre-migration Coup: `e1f431e` (retained in this repository's history). Verified private JSON backups are in each existing app's `/app/data/migration-backup-20261009/`. No saved-state format changes were needed.
+
+75 automated tests pass (11 shared, 39 Secret Hitler, 10 Coup, 15 Undercover). Browser checks cover original Secret Hitler invites/recovery, Coup multiplayer, five-player Undercover, and one-human/two-bot Undercover. The live Undercover model check observed model-generated decisions for both AI players.
