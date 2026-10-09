@@ -1,9 +1,13 @@
 import { randomInt } from "node:crypto";
 import { action, view } from "./game.js";
 import { chatResponder, chatReplyTargets, tableMessages } from "./chat.js";
-export const DEFAULT_AI_MODEL = "z-ai/glm-5.3-flash";
-export const MAX_BOTS = 4;
-export const AI_NAMES = ["Ada · AI", "Basil · AI", "Cora · AI", "Dorian · AI"];
+import { completeJSON, DEFAULT_AI_MODEL } from "../../packages/ai/provider.js";
+import { createActivity } from "../../packages/ai/activity.js";
+export {
+  DEFAULT_AI_MODEL,
+  MAX_BOTS,
+  AI_NAMES,
+} from "../../packages/ai/provider.js";
 const PRIVATE_PHASES = new Set([
   "president-discard",
   "chancellor-discard",
@@ -186,36 +190,20 @@ export async function reviewPublicComment(
       previousPublicStatements: ownStatements.slice(-25),
       draft: comment,
     };
-    const response = await fetchImpl(baseURL + "/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "X-Title": "The Assembly - Public comment check",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: PUBLIC_REVIEW_SYSTEM },
-          { role: "user", content: JSON.stringify(payload) },
-        ],
-        max_tokens: 500,
-        temperature: 0,
-        reasoning: model.includes("glm")
-          ? { effort: "low", exclude: true }
-          : { enabled: false },
-        response_format: { type: "json_object" },
-        provider: {
-          require_parameters: true,
-          max_price: { prompt: 0.2, completion: 0.6 },
-        },
-      }),
-      signal: AbortSignal.timeout(6000),
+    const result = await completeJSON({
+      apiKey,
+      model,
+      fetchImpl,
+      baseURL,
+      system: PUBLIC_REVIEW_SYSTEM,
+      context: payload,
+      title: "The Assembly - Public comment check",
+      maxTokens: 500,
+      temperature: 0,
+      timeout: 6000,
     });
-    if (!response.ok) return "";
-    const result = await response.json();
-    cost = result.usage?.cost;
-    const review = JSON.parse(result.choices?.[0]?.message?.content ?? "null");
+    cost = result.cost;
+    const review = result.parsed;
     return review?.publish === true ? comment : "";
   } catch {
     return "";
@@ -255,40 +243,16 @@ export async function chooseWithModel(
       throw Error("Policy reaction is not available");
     context.choices = [{ index: 0, type: "comment" }];
   }
-  const input = JSON.stringify(context);
-  // Bounded input and output keep cost independent of arbitrarily long games.
-  if (input.length > 22000) throw Error("AI context limit");
-  const response = await fetchImpl(baseURL + "/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "X-Title": "The Assembly - Secret Hitler",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: AI_SYSTEM },
-        { role: "user", content: input },
-      ],
-      max_tokens: 700,
-      temperature: 0.6,
-      reasoning: model.includes("glm")
-        ? { effort: "low", exclude: true }
-        : { enabled: false },
-      response_format: { type: "json_object" },
-      provider: {
-        require_parameters: true,
-        max_price: { prompt: 0.2, completion: 0.6 },
-      },
-    }),
-    signal: AbortSignal.timeout(12000),
+  const result = await completeJSON({
+    apiKey,
+    model,
+    fetchImpl,
+    baseURL,
+    system: AI_SYSTEM,
+    context,
+    title: "The Assembly - Secret Hitler",
   });
-  if (!response.ok) throw Error(`AI service HTTP ${response.status}`);
-  const result = await response.json();
-  const content = result.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw Error("AI returned no decision");
-  const parsed = JSON.parse(content);
+  const parsed = result.parsed;
   if (
     !Number.isInteger(parsed.choice) ||
     parsed.choice < 0 ||
@@ -316,10 +280,7 @@ export async function chooseWithModel(
     choice: reaction ? null : legalChoices(v)[parsed.choice],
     comment,
     source: "model",
-    cost:
-      typeof result.usage?.cost === "number" && result.usage.cost >= 0
-        ? result.usage.cost
-        : null,
+    cost: result.cost,
   };
 }
 
@@ -513,21 +474,12 @@ export function createAIController({
   minDelay = 1600,
   maxConcurrent = 2,
 }) {
-  const active = new Map(),
-    workers = new Map(),
-    due = new Map();
-  function touch(code) {
-    active.set(code, now());
-  }
+  const activity = createActivity({ now, maxConcurrent });
+  const { active, workers, due, touch } = activity;
   async function step() {
     for (const g of Object.values(getRooms())) {
       if (workers.size >= maxConcurrent) break;
-      if (
-        !active.has(g.code) ||
-        now() - active.get(g.code) > 60000 ||
-        workers.has(g.code)
-      )
-        continue;
+      if (!activity.eligible(g.code)) continue;
       const publicPhase = !PRIVATE_PHASES.has(g.phase) && g.phase !== "vote";
       const policySpeaker = publicPhase ? policyReactors(g)[0] : null;
       const speaker =
@@ -695,11 +647,7 @@ export function createAIController({
       // Never let a transient worker failure crash the HTTP server.
       job.catch(() => {});
     }
-    for (const [code, time] of active)
-      if (now() - time > 3600000) {
-        active.delete(code);
-        due.delete(code);
-      }
+    activity.prune();
   }
   return { touch, step, thinkingId: (code) => workers.get(code) || null };
 }

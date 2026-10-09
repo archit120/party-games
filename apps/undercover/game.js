@@ -1,3 +1,4 @@
+import { castBallot, tallyBallots } from "../../packages/core/ballots.js";
 import { randomUUID, randomInt } from "node:crypto";
 import { pairs } from "./words.js";
 const need = (ok, msg = "That move is not available.") => {
@@ -88,8 +89,7 @@ function voting(g, candidates, runoff = false) {
   g.runoff = runoff;
 }
 function countVotes(g) {
-  const counts = Object.fromEntries(g.candidates.map((id) => [id, 0]));
-  Object.values(g.votes).forEach((id) => counts[id]++);
+  const counts = Object.fromEntries(tallyBallots(g.votes, g.candidates));
   const max = Math.max(...Object.values(counts)),
     top = g.candidates.filter((id) => counts[id] === max);
   g.lastVote = { round: g.round, runoff: g.runoff, counts };
@@ -182,7 +182,7 @@ export function action(g, id, type, payload = {}) {
       );
     }
   } else if (type === "openVote") {
-    need(g.phase === "discussion" && p.alive);
+    need(g.phase === "discussion" && (p.alive || g.host === id));
     voting(
       g,
       alive(g).map((p) => p.id),
@@ -193,9 +193,16 @@ export function action(g, id, type, payload = {}) {
       g.candidates.includes(payload.target) && payload.target !== id,
       "Vote for another eligible player.",
     );
-    need(!Object.hasOwn(g.votes, id), "Your vote is already sealed.");
-    g.votes[id] = payload.target;
-    if (alive(g).every((p) => Object.hasOwn(g.votes, p.id))) countVotes(g);
+    if (
+      castBallot({
+        votes: g.votes,
+        voterId: id,
+        value: payload.target,
+        voters: alive(g).map((p) => p.id),
+        choices: g.candidates.filter((target) => target !== id),
+      })
+    )
+      countVotes(g);
   } else if (type === "guess") {
     need(g.phase === "guess" && g.guesser === id);
     need(
@@ -251,6 +258,8 @@ export function view(g, id) {
       id: x.id,
       name: x.name,
       alive: x.alive,
+      bot: !!x.bot,
+      botSource: x.botSource,
       ...(!x.alive || g.phase === "finished" ? { role: x.role } : {}),
       voted: Object.hasOwn(g.votes || {}, x.id),
     })),

@@ -1,3 +1,6 @@
+import { beginAction } from "../../packages/core/state.js";
+import { sameBallot, hasVoted } from "../../packages/core/ballots.js";
+import { createBudget } from "../../packages/ai/budget.js";
 import http from "node:http";
 import { addChat } from "./chat.js";
 import { readFileSync } from "node:fs";
@@ -36,43 +39,12 @@ function save() {
 }
 const aiKey = process.env.OPENROUTER_API_KEY;
 const aiModel = process.env.AI_MODEL || DEFAULT_AI_MODEL;
-const budgetFile = `${dir}/ai-budget.json`;
-let aiBudget = readJSON(budgetFile);
-const configuredBudget = Number(process.env.AI_DAILY_BUDGET_USD ?? 0.5);
-const dailyBudget = Number.isFinite(configuredBudget)
-  ? Math.max(0, configuredBudget)
-  : 0;
-function saveBudget() {
-  writeJSON(budgetFile, aiBudget);
-}
-function reserveAIRequest(code) {
-  const day = new Date().toISOString().slice(0, 10);
-  if (aiBudget.day !== day) aiBudget = { day, spent: 0, requests: 0 };
-  const room = rooms[code];
-  // $0.01 bounds 22k characters + system prompt at the provider price ceiling.
-  // Charge actual reported cost afterward; unknown costs retain the reservation.
-  const reserve = 0.01;
-  if (
-    !room ||
-    (room.aiRequests ?? 0) >= 120 ||
-    aiBudget.requests >= 1000 ||
-    aiBudget.spent + reserve > dailyBudget
-  )
-    return null;
-  room.aiRequests = (room.aiRequests ?? 0) + 1;
-  aiBudget.spent += reserve;
-  aiBudget.requests++;
-  save();
-  saveBudget();
-  return {
-    finish(cost) {
-      if (aiBudget.day !== day) return;
-      if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0)
-        aiBudget.spent = Math.max(0, aiBudget.spent - reserve + cost);
-      saveBudget();
-    },
-  };
-}
+const reserveAIRequest = createBudget({
+  file: `${dir}/ai-budget.json`,
+  getRoom: (code) => rooms[code],
+  saveRooms: save,
+  dailyBudget: process.env.AI_DAILY_BUDGET_USD ?? 0.5,
+});
 const aiController = createAIController({
   getRooms: () => rooms,
   commit: (room) => {
@@ -274,24 +246,27 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "POST" && match[2] === "action") {
         // Older open tabs have no electionId. Their revision must still belong
         // to this voting phase; only accepted ballots can change it here.
-        const sameElection =
-          body.electionId !== undefined
-            ? body.electionId === (g.electionId ?? 0)
-            : Number.isInteger(body.revision) &&
-              body.revision >=
-                (g.voteStartRevision ??
-                  g.revision - Object.keys(g.votes ?? {}).length) &&
-              body.revision <= g.revision;
+        const sameElection = sameBallot({
+          submittedId: body.electionId,
+          currentId: g.electionId ?? 0,
+          submittedRevision: body.revision,
+          currentRevision: g.revision,
+          firstRevision:
+            g.voteStartRevision ??
+            g.revision - Object.keys(g.votes ?? {}).length,
+          allowLegacy: true,
+        });
         const ballot =
           body.type === "vote" && g.phase === "vote" && sameElection;
         if (body.type === "vote" && body.electionId !== undefined && !ballot)
           return send(409, {
             error: "This election has ended. The table is updating.",
           });
-        if (ballot && p.id in g.votes) return send(200, view(g, p.id));
-        if (!ballot && body.revision !== g.revision)
-          return send(409, { error: "The table changed. Please try again." });
-        const copy = structuredClone(g);
+        if (ballot && hasVoted(g.votes, p.id)) return send(200, view(g, p.id));
+        const copy = beginAction(g, {
+          revision: body.revision,
+          concurrent: ballot,
+        });
         action(copy, p.id, body.type, body.payload);
         flushComments(copy);
         copy.updated = Date.now();

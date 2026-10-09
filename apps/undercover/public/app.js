@@ -1,4 +1,10 @@
-import { escapeHTML as esc, readStored, request } from "/shared/client.js";
+import {
+  escapeHTML as esc,
+  readStored,
+  request,
+  newerState,
+  createPollGate,
+} from "/shared/client.js";
 const app = document.querySelector("#app"),
   error = document.querySelector("#error");
 let state = null,
@@ -92,6 +98,8 @@ function render() {
       ? `<form id="settings"><div class="settings"><label>Undercover players<select name="undercover">${[1, 2, 3].map((n) => `<option ${state.settings.undercover === n ? "selected" : ""}>${n}</option>`).join("")}</select></label><label><input name="mrWhite" type="checkbox" ${state.settings.mrWhite ? "checked" : ""}> Include Mr. White</label><button>Save settings</button></div></form>` +
         button("Begin game", "start", {}, "primary")
       : "<p>Waiting for the host to begin.</p>";
+    if (host && state.ai?.available)
+      controls += `<button id="add-bot" ${state.players.filter((p) => p.bot).length >= state.ai.maxBots || state.players.length >= 12 ? "disabled" : ""}>Add AI player</button><p class="muted">${state.ai.modelAvailable ? "AI players use their own word and the public clues." : "AI provider unavailable: bots use basic fallback clues and random votes."} Up to ${state.ai.maxBots} AI seats. You open voting after discussion.</p>`;
     controls += `<button id="leave" class="quiet">Leave seat</button>`;
   } else if (state.phase === "clue") {
     title =
@@ -106,7 +114,8 @@ function render() {
     title = "Something sounds different";
     hint =
       "Discuss the clues together. When ready, any living player can open the ballot.";
-    if (me.alive) controls = button("Open voting", "openVote", {}, "primary");
+    if (me.alive || host)
+      controls = button("Open voting", "openVote", {}, "primary");
   } else if (state.phase === "vote") {
     title = state.runoff ? "A closer look: runoff" : "Who is undercover?";
     hint =
@@ -149,7 +158,7 @@ function render() {
   const secret = !["lobby", "finished"].includes(state.phase)
     ? `<section class="secret"><p class="eyebrow">YOUR PRIVATE WORD</p><h2>${showSecret ? (me.wordless ? "You are Mr. White" : esc(me.word)) : "Keep it under cover"}</h2>${showSecret && me.wordless ? '<p class="muted">You have no word. Listen closely and blend in.</p>' : ""}<button id="secret-toggle" class="quiet">${showSecret ? "Hide word" : "Reveal my word"}</button></section>`
     : "";
-  app.innerHTML = `<div class="roomhead"><div><p class="eyebrow">PRIVATE ROOM · ${state.players.length}/12 SEATS</p><h2>${state.code}${state.round && state.phase !== "lobby" ? " · Round " + state.round : ""}</h2></div><button id="invite" class="quiet">Copy invite link</button></div><div class="people">${state.players.map((p) => `<div class="person ${p.alive ? "" : "out"}"><b>${esc(p.name)}${p.id === me.id ? " · you" : ""}</b><small>${p.role ? esc(p.role === "mrWhite" ? "Mr. White" : p.role) : p.id === state.turn ? "Giving a clue" : p.id === state.host ? "Host" : "At the table"}${!p.alive ? " · eliminated" : ""}</small>${host ? `<button data-recover="${p.id}">Recover seat</button>` : ""}${host && p.id !== me.id && state.phase === "lobby" ? `<button data-kick="${p.id}">Remove</button>` : ""}</div>`).join("")}</div>${recovery ? `<p class="recovery">Private recovery link for ${esc(recovery.name)} (15 minutes). Send only to that player: <a href="${esc(recovery.url)}">${esc(recovery.url)}</a></p>` : ""}<div class="table-layout"><div>${secret}<section class="decision" aria-live="polite"><p class="eyebrow">${state.phase.toUpperCase()}</p><h2>${title}</h2><p class="muted">${hint}</p><div class="controls">${controls}</div></section>${[
+  app.innerHTML = `<div class="roomhead"><div><p class="eyebrow">PRIVATE ROOM · ${state.players.length}/12 SEATS</p><h2>${state.code}${state.round && state.phase !== "lobby" ? " · Round " + state.round : ""}</h2></div><button id="invite" class="quiet">Copy invite link</button></div><div class="people">${state.players.map((p) => `<div class="person ${p.alive ? "" : "out"}"><b>${esc(p.name)}${p.id === me.id ? " · you" : ""}</b><small>${p.role ? esc(p.role === "mrWhite" ? "Mr. White" : p.role) : p.id === state.turn ? "Giving a clue" : p.id === state.host ? "Host" : "At the table"}${!p.alive ? " · eliminated" : ""}${p.botSource === "basic" ? " · basic fallback" : ""}</small>${host && !p.bot ? `<button data-recover="${p.id}">Recover seat</button>` : ""}${host && p.id !== me.id && state.phase === "lobby" ? `<button data-kick="${p.id}">Remove</button>` : ""}</div>`).join("")}</div>${recovery ? `<p class="recovery">Private recovery link for ${esc(recovery.name)} (15 minutes). Send only to that player: <a href="${esc(recovery.url)}">${esc(recovery.url)}</a></p>` : ""}<div class="table-layout"><div>${secret}<section class="decision" aria-live="polite"><p class="eyebrow">${state.phase.toUpperCase()}</p><h2>${title}</h2><p class="muted">${hint}</p><div class="controls">${controls}</div></section>${[
     ...new Set(state.clues.map((c) => c.round)),
   ]
     .reverse()
@@ -231,6 +240,9 @@ function render() {
           roomAction("recovery", { target: b.dataset.recover })),
     );
   document
+    .querySelector("#add-bot")
+    ?.addEventListener("click", () => roomAction("bots", { operation: "add" }));
+  document
     .querySelector("#leave")
     ?.addEventListener("click", () => roomAction("leave", {}));
 }
@@ -283,29 +295,33 @@ async function act(type, payload) {
     busy = false;
   }
 }
+const pollGate = createPollGate();
 async function poll() {
-  if (!session || busy || polling) return;
-  polling = true;
-  try {
-    const next = await api("/api/rooms/" + session.code);
-    if (!state || state.revision !== next.revision) {
-      if (state?.gameId !== next.gameId) showSecret = false;
-      state = next;
-      render();
-    }
-  } catch (e) {
-    fail(e);
-    if (e.status === 401) {
-      const all = seats();
-      delete all[session.code];
-      localStorage.setItem("undercover-seats", JSON.stringify(all));
-      session = null;
-      state = null;
-      entrance();
-    }
-  } finally {
-    polling = false;
-  }
+  if (!session || busy) return;
+  const current = session;
+  return pollGate({
+    session: current,
+    getSession: () => session,
+    load: () => api("/api/rooms/" + current.code),
+    onState: (next) => {
+      if (newerState(state, next)) {
+        if (state?.gameId !== next.gameId) showSecret = false;
+        state = next;
+        render();
+      }
+    },
+    onError: (e) => {
+      fail(e);
+      if (e.status === 401) {
+        const all = seats();
+        delete all[current.code];
+        localStorage.setItem("undercover-seats", JSON.stringify(all));
+        session = null;
+        state = null;
+        entrance();
+      }
+    },
+  });
 }
 async function boot() {
   const key = new URLSearchParams(location.hash.slice(1)).get("recover");

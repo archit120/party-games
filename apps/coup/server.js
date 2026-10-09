@@ -1,3 +1,4 @@
+import { beginAction } from "../../packages/core/state.js";
 import http from "node:http";
 import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { ensureDataDir, writeJSON } from "../../packages/core/storage.js";
@@ -104,9 +105,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(200, view(old, p.id));
     if (req.method === "POST" && url.pathname === "/api/action") {
-      if (b.rev !== old.rev)
-        return json(409, { error: "The table changed. Please try again." });
-      const g = structuredClone(old);
+      const g = beginAction(old, { revision: b.rev, revisionKey: "rev" });
       if (b.type === "leave") {
         if (g.phase !== "lobby")
           throw Error("You can leave your seat only in the lobby.");

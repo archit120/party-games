@@ -1,4 +1,10 @@
-import { escapeHTML as esc, readStored, request } from "/shared/client.js";
+import {
+  escapeHTML as esc,
+  readStored,
+  request,
+  newerState,
+  createPollGate,
+} from "/shared/client.js";
 const $ = (s) => document.querySelector(s),
   app = $("#app");
 let session = null,
@@ -8,13 +14,16 @@ let session = null,
   chatDraft = "",
   displayedGameId = null,
   discardSelection = null;
-const discardKey = (s) => JSON.stringify([s.code, s.gameId, s.electionId, s.phase, s.me.id, s.hand]);
+const discardKey = (s) =>
+  JSON.stringify([s.code, s.gameId, s.electionId, s.phase, s.me.id, s.hand]);
 const name = (id) => esc(state.players.find((p) => p.id === id)?.name || "—");
 function error(e) {
   $("#error").textContent = e.message || e;
   setTimeout(() => ($("#error").textContent = ""), 6000);
 }
-async function api(path, body) { return request(path, body, session?.token); }
+async function api(path, body) {
+  return request(path, body, session?.token);
+}
 function savedSeats() {
   return readStored("assembly-saved-seats", {});
 }
@@ -322,14 +331,17 @@ function controls() {
     text = `${name(s.phase === "president-discard" ? s.president : s.chancellor)} must secretly discard one policy. No communication during this session.`;
     if (s.hand.length) {
       title = "Choose a card to DISCARD.";
-      text = s.phase === "president-discard"
-        ? "The selected card is thrown away. The other two go to the Chancellor. Select a card, then confirm below."
-        : "The selected card is thrown away. The OTHER card becomes law. Select a card, then confirm below.";
+      text =
+        s.phase === "president-discard"
+          ? "The selected card is thrown away. The other two go to the Chancellor. Select a card, then confirm below."
+          : "The selected card is thrown away. The OTHER card becomes law. Select a card, then confirm below.";
       const selected = discardSelection?.index;
-      actions = s.hand.map((p, i) => {
-        const marked = selected === i;
-        return `<button class="policy ${p.toLowerCase()}${marked ? " marked-discard" : ""}" data-action="select-discard" data-payload='{"index":${i}}' aria-pressed="${marked}" aria-label="Select ${p} card ${i + 1} to discard"><span class="policy-overline">${marked ? "THROW AWAY" : "SELECT TO DISCARD"}</span>${icon(p.toLowerCase())}<b>${p}</b><span class="policy-lines"></span><span class="discard-label">${marked ? "✓ Marked for discard" : "Discard this card"}</span></button>`;
-      }).join("");
+      actions = s.hand
+        .map((p, i) => {
+          const marked = selected === i;
+          return `<button class="policy ${p.toLowerCase()}${marked ? " marked-discard" : ""}" data-action="select-discard" data-payload='{"index":${i}}' aria-pressed="${marked}" aria-label="Select ${p} card ${i + 1} to discard"><span class="policy-overline">${marked ? "THROW AWAY" : "SELECT TO DISCARD"}</span>${icon(p.toLowerCase())}<b>${p}</b><span class="policy-lines"></span><span class="discard-label">${marked ? "✓ Marked for discard" : "Discard this card"}</span></button>`;
+        })
+        .join("");
       if (selected !== undefined) {
         const remaining = s.hand.filter((_, i) => i !== selected);
         actions += `<div class="discard-preview" role="status"><p><strong>Discard:</strong> ${esc(s.hand[selected])}</p><p><strong>${s.phase === "president-discard" ? "Pass to Chancellor" : "Enact as law"}:</strong> ${remaining.map(esc).join(" + ")}</p><div class="discard-confirm">${button(`Confirm discard: ${esc(s.hand[selected])}`, "discard", { index: selected })}${button("Cancel selection", "cancel-discard", {}, "quiet")}</div></div>`;
@@ -574,15 +586,21 @@ function render() {
       if (busy) return;
       busy = true;
       try {
-        const r = await api(`/api/rooms/${s.code}/recovery`, { target: button.dataset.recover });
+        const r = await api(`/api/rooms/${s.code}/recovery`, {
+          target: button.dataset.recover,
+        });
         $("#recovery-title").textContent = `Recover ${r.name}’s seat`;
-        $("#recovery-link").value = `${location.origin}/?room=${s.code}#recover=${r.key}`;
+        $("#recovery-link").value =
+          `${location.origin}/?room=${s.code}#recover=${r.key}`;
         $("#copy-recovery").textContent = "Copy private link";
         $("#seat-recovery").showModal();
         $("#recovery-link").focus();
         $("#recovery-link").select();
-      } catch (e) { error(e); }
-      finally { busy = false; }
+      } catch (e) {
+        error(e);
+      } finally {
+        busy = false;
+      }
     };
   });
   app.querySelectorAll("[data-kick]").forEach((button) => {
@@ -650,15 +668,23 @@ function render() {
         if (busy) return;
         const type = el.dataset.action,
           payload = JSON.parse(el.dataset.payload);
-        if (type === "end-game" && !confirm("End this game for everyone? Roles will be revealed, no winner will be declared, and you can start again in this room.")) return;
+        if (
+          type === "end-game" &&
+          !confirm(
+            "End this game for everyone? Roles will be revealed, no winner will be declared, and you can start again in this room.",
+          )
+        )
+          return;
         if (type === "select-discard" || type === "cancel-discard") {
-          discardSelection = type === "select-discard"
-            ? { key: discardKey(s), index: payload.index }
-            : null;
+          discardSelection =
+            type === "select-discard"
+              ? { key: discardKey(s), index: payload.index }
+              : null;
           render();
-          const target = type === "select-discard"
-            ? '[data-action="discard"]'
-            : '[data-action="select-discard"]';
+          const target =
+            type === "select-discard"
+              ? '[data-action="discard"]'
+              : '[data-action="select-discard"]';
           app.querySelector(target)?.focus({ preventScroll: true });
           return;
         }
@@ -693,50 +719,54 @@ function render() {
       }),
   );
 }
+const pollGate = createPollGate();
 async function poll() {
-  if (!session) return;
   const current = session;
-  try {
-    const fresh = await api(`/api/rooms/${current.code}`);
-    if (session !== current) return;
-    if (!state || fresh.revision > state.revision) {
-      state = fresh;
-      rememberSeat({
-        ...current,
-        name: fresh.players.find((p) => p.id === fresh.me.id).name,
-      });
-      render();
-    }
-    if ($("#connection")) $("#connection").textContent = "● CONNECTED";
-  } catch (e) {
-    if (session !== current) return;
-    if ($("#connection")) $("#connection").textContent = "○ RECONNECTING";
-    if (e.status === 401) {
-      const seats = savedSeats();
-      delete seats[current.code];
-      localStorage.setItem("assembly-saved-seats", JSON.stringify(seats));
-      if (readStored("assembly-session", null)?.code === current.code)
-        localStorage.removeItem("assembly-session");
-      const hadSeat = !!state;
-      session = null;
-      state = null;
-      showSecret = false;
-      chatDraft = "";
-      $("#private-intelligence").close();
-      $("#share-invite").close();
-      $("#seat-recovery").close();
-      landing();
-      error(
-        hadSeat
-          ? "Your seat is no longer available. You may have been removed by the host."
-          : e,
-      );
-    } else if (!state) {
-      app.innerHTML = `<section class="panel"><h2>Reconnecting to your table…</h2><p class="small">Your seat is saved. We’ll retry automatically.</p><button class="quiet" id="retry-connection">Retry now</button></section>`;
-      $("#retry-connection").onclick = poll;
-    }
-  }
+  return pollGate({
+    session: current,
+    getSession: () => session,
+    load: () => api(`/api/rooms/${current.code}`),
+    onState: async (fresh) => {
+      if (newerState(state, fresh)) {
+        state = fresh;
+        rememberSeat({
+          ...current,
+          name: fresh.players.find((p) => p.id === fresh.me.id).name,
+        });
+        render();
+      }
+      if ($("#connection")) $("#connection").textContent = "● CONNECTED";
+    },
+    onError: async (e) => {
+      if ($("#connection")) $("#connection").textContent = "○ RECONNECTING";
+      if (e.status === 401) {
+        const seats = savedSeats();
+        delete seats[current.code];
+        localStorage.setItem("assembly-saved-seats", JSON.stringify(seats));
+        if (readStored("assembly-session", null)?.code === current.code)
+          localStorage.removeItem("assembly-session");
+        const hadSeat = !!state;
+        session = null;
+        state = null;
+        showSecret = false;
+        chatDraft = "";
+        $("#private-intelligence").close();
+        $("#share-invite").close();
+        $("#seat-recovery").close();
+        landing();
+        error(
+          hadSeat
+            ? "Your seat is no longer available. You may have been removed by the host."
+            : e,
+        );
+      } else if (!state) {
+        app.innerHTML = `<section class="panel"><h2>Reconnecting to your table…</h2><p class="small">Your seat is saved. We’ll retry automatically.</p><button class="quiet" id="retry-connection">Retry now</button></section>`;
+        $("#retry-connection").onclick = poll;
+      }
+    },
+  });
 }
+
 function setCompact(enabled) {
   document.body.classList.toggle("compact", enabled);
   $("#compact-toggle").setAttribute("aria-pressed", String(enabled));
@@ -756,9 +786,13 @@ $("#copy-recovery").onclick = async () => {
     field.focus();
     field.select();
     field.setSelectionRange(0, field.value.length);
-    try { copied = document.execCommand("copy"); } catch {}
+    try {
+      copied = document.execCommand("copy");
+    } catch {}
   }
-  $("#copy-recovery").textContent = copied ? "Private link copied ✓" : "Select the link above and choose Copy";
+  $("#copy-recovery").textContent = copied
+    ? "Private link copied ✓"
+    : "Select the link above and choose Copy";
 };
 $("#compact-toggle").onclick = () =>
   setCompact(!document.body.classList.contains("compact"));
@@ -788,7 +822,9 @@ async function recoverSeat(key) {
   } catch (e) {
     app.innerHTML = `<section class="panel"><h2>Unable to recover seat</h2><p>${esc(e.message)}</p><button id="retry-recovery">Retry</button></section>`;
     $("#retry-recovery").onclick = () => recoverSeat(key);
-  } finally { busy = false; }
+  } finally {
+    busy = false;
+  }
 }
 // Migrate old single-room sessions without letting them override an invite.
 const legacySession = readStored("assembly-session", null);
@@ -797,7 +833,8 @@ const requestedRoom = roomInURL();
 session = requestedRoom ? (savedSeats()[requestedRoom] ?? null) : null;
 if (recoveryKey) {
   session = null;
-  app.innerHTML = '<section class="panel"><h2>Recover your seat</h2><p>Use this private link only if the host sent it to you for your own seat.</p><button id="accept-recovery">Resume my seat</button></section>';
+  app.innerHTML =
+    '<section class="panel"><h2>Recover your seat</h2><p>Use this private link only if the host sent it to you for your own seat.</p><button id="accept-recovery">Resume my seat</button></section>';
   $("#accept-recovery").onclick = () => recoverSeat(recoveryKey);
 } else if (session) poll();
 else landing();

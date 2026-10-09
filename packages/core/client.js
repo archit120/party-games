@@ -38,3 +38,29 @@ export async function request(path, body, token) {
   }
   return result;
 }
+
+// A slow poll must never replace a newer action response or another room's seat.
+export function newerState(current, incoming, revisionKey = "revision") {
+  return (
+    !!incoming &&
+    (!current ||
+      (incoming.code === current.code &&
+        incoming[revisionKey] > current[revisionKey]))
+  );
+}
+// One poll at a time, bound to the exact session that issued it.
+export function createPollGate() {
+  let running = false;
+  return async function poll({ session, getSession, load, onState, onError }) {
+    if (running || !session) return;
+    running = true;
+    try {
+      const fresh = await load();
+      if (getSession() === session) await onState(fresh);
+    } catch (e) {
+      if (getSession() === session) await onError(e);
+    } finally {
+      running = false;
+    }
+  };
+}

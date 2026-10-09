@@ -1,3 +1,4 @@
+import {castBallot,tallyBallots} from "../../packages/core/ballots.js";
 import { randomInt, randomUUID } from "node:crypto";
 export function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
@@ -234,15 +235,14 @@ export function action(g, id, type, payload = {}) {
         !(id in g.votes),
       "You cannot vote now.",
     );
-    g.votes[id] = payload.yes;
-    if (Object.keys(g.votes).length === alive(g).length) {
+    if (castBallot({votes:g.votes,voterId:id,value:payload.yes,voters:alive(g).map(p=>p.id),choices:[true,false]})) {
       g.lastVote = {
         votes: { ...g.votes },
         president: president.id,
         chancellor: g.chancellor,
       };
       const passed =
-        Object.values(g.votes).filter(Boolean).length > alive(g).length / 2;
+        tallyBallots(g.votes,[true,false]).get(true) > alive(g).length / 2;
       log(
         g,
         `Election ${passed ? "passes" : "fails"}: ${alive(g)

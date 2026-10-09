@@ -1,4 +1,9 @@
-import { escapeHTML as esc, request } from "/shared/client.js";
+import {
+  escapeHTML as esc,
+  request,
+  newerState,
+  createPollGate,
+} from "/shared/client.js";
 const app = document.querySelector("#app"),
   error = document.querySelector("#error");
 let state = null,
@@ -245,22 +250,27 @@ async function act(type, data) {
     busy = false;
   }
 }
+const pollGate = createPollGate();
 async function poll() {
-  if (!token || busy || polling) return;
-  polling = true;
-  try {
-    const next = await api("state?code=" + code);
-    if (!state || state.rev !== next.rev) {
-      state = next;
-      render();
-    }
-  } catch (e) {
-    error.textContent = e.message;
-    if (!state) entrance();
-  } finally {
-    polling = false;
-  }
+  if (!token || busy) return;
+  const current = token;
+  return pollGate({
+    session: current,
+    getSession: () => token,
+    load: () => api("state?code=" + code),
+    onState: (next) => {
+      if (newerState(state, next, "rev")) {
+        state = next;
+        render();
+      }
+    },
+    onError: (e) => {
+      error.textContent = e.message;
+      if (!state) entrance();
+    },
+  });
 }
+
 entrance();
 poll();
 setInterval(poll, 1200);

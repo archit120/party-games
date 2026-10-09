@@ -57,3 +57,54 @@ test("room codes avoid collisions and ambiguous characters", () => {
   }
   assert.equal(seen.size, 1000);
 });
+
+test("shared ballots: eligibility, sealed choices, tally and current-election validation", async () => {
+  const { castBallot, tallyBallots, sameBallot } =
+    await import("../packages/core/ballots.js");
+  const votes = {},
+    voters = ["a", "b", "c"];
+  const cast = (voterId, value, choices = [true, false]) =>
+    castBallot({ votes, voterId, value, voters, choices });
+  assert.throws(() => cast("outsider", true));
+  assert.throws(() => cast("a", "yes"));
+  assert.equal(cast("a", true), false);
+  assert.throws(() => cast("a", false));
+  assert.equal(cast("b", false), false);
+  assert.equal(cast("c", true), true);
+  assert.equal(tallyBallots(votes, [true, false]).get(true), 2);
+  assert.deepEqual(
+    Object.fromEntries(tallyBallots({ a: "b", b: "c", c: "b" }, voters)),
+    { a: 0, b: 2, c: 1 },
+  );
+  assert.equal(sameBallot({ submittedId: 4, currentId: 5 }), false);
+  assert.equal(sameBallot({ submittedId: 5, currentId: 5 }), true);
+  assert.equal(
+    sameBallot({
+      currentId: 5,
+      submittedRevision: 9,
+      currentRevision: 11,
+      firstRevision: 9,
+    }),
+    false,
+  );
+  assert.equal(
+    sameBallot({
+      currentId: 5,
+      submittedRevision: 9,
+      currentRevision: 11,
+      firstRevision: 9,
+      allowLegacy: true,
+    }),
+    true,
+  );
+  assert.equal(
+    sameBallot({
+      currentId: 5,
+      submittedRevision: 8,
+      currentRevision: 11,
+      firstRevision: 9,
+      allowLegacy: true,
+    }),
+    false,
+  );
+});

@@ -122,7 +122,7 @@ try {
   await manual.getByLabel("YOUR NAME").press("Enter");
   assert.equal(new URL((await req).url()).pathname, "/api/join");
   await manual
-    .locator("#error")
+    .locator("#entry-error")
     .filter({ hasText: "Room unavailable" })
     .waitFor();
   assert.equal(new URL(manual.url()).searchParams.get("room"), "ZZZZZZ");

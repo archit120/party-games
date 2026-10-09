@@ -48,6 +48,24 @@ test("shared room server: joins, concurrent ballots, recovery, restart persisten
         ).data,
       );
     const path = "/api/rooms/" + code;
+    assert.equal(
+      (await call(path + "/bots", { operation: "add" }, players[1].token))
+        .status,
+      403,
+    );
+    let bots = (await call(path + "/bots", { operation: "add" }, a.token)).data;
+    const bot = bots.players.find((p) => p.bot);
+    assert.ok(bot);
+    assert.equal(
+      (await call(path + "/recovery", { target: bot.id }, a.token)).status,
+      400,
+    );
+    await call(
+      path + "/bots",
+      { operation: "remove", target: bot.id },
+      a.token,
+    );
+
     assert.equal((await call(path)).status, 401);
     assert.equal(
       (

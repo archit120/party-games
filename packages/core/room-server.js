@@ -1,3 +1,6 @@
+import { beginAction } from "./state.js";
+import { sameBallot, hasVoted } from "./ballots.js";
+import { createBudget } from "../ai/budget.js";
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { ensureDataDir, readJSON, writeJSON } from "./storage.js";
@@ -10,12 +13,52 @@ import {
   joinSeat,
 } from "./rooms.js";
 // Uses Secret Hitler's routes, persistent room map and per-seat bearer sessions.
-export function startRoomServer({ game, title, publicDir, maxPlayers = 12 }) {
+export function startRoomServer({
+  game,
+  title,
+  publicDir,
+  maxPlayers = 12,
+  ai,
+}) {
   const dir = ensureDataDir(process.env.DATA_DIR || "./data"),
     file = `${dir}/rooms.json`,
     rooms = readJSON(file),
     rates = new Map();
   const save = () => writeJSON(file, rooms);
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const model = process.env.AI_MODEL || ai?.DEFAULT_AI_MODEL;
+  const reserveRequest = createBudget({
+    file: `${dir}/ai-budget.json`,
+    getRoom: (code) => rooms[code],
+    saveRooms: save,
+    dailyBudget: process.env.AI_DAILY_BUDGET_USD ?? 0.5,
+  });
+  const controller = ai?.createAIController({
+    getRooms: () => rooms,
+    commit: (g) => {
+      rooms[g.code] = g;
+      save();
+    },
+    reserveRequest,
+    apiKey,
+    model,
+  });
+  const view = (g, id) => ({
+    ...game.view(g, id),
+    ...(ai
+      ? {
+          ai: {
+            available: true,
+            modelAvailable: !!apiKey,
+            model,
+            maxBots: ai.MAX_BOTS,
+          },
+        }
+      : {}),
+  });
+  if (controller)
+    setInterval(() => controller.step().catch(() => {}), 500).unref();
+
   const server = http.createServer(async (req, res) => {
     securityHeaders(res);
     const send = (s, b) => sendJSON(res, s, b);
@@ -90,11 +133,11 @@ export function startRoomServer({ game, title, publicDir, maxPlayers = 12 }) {
         return send(200, {
           code: g.code,
           token: p.token,
-          state: game.view(g, p.id),
+          state: view(g, p.id),
         });
       }
       const match = url.pathname.match(
-        /^\/api\/rooms\/([A-Z]{6})(?:\/(action|leave|kick|recovery))?$/,
+        /^\/api\/rooms\/([A-Z]{6})(?:\/(action|leave|kick|recovery|bots))?$/,
       );
       if (!match) return send(404, { error: "Not found." });
       const g = rooms[match[1]],
@@ -103,15 +146,48 @@ export function startRoomServer({ game, title, publicDir, maxPlayers = 12 }) {
         return send(401, {
           error: "Room session unavailable. Ask the host for a recovery link.",
         });
-      if (req.method === "GET" && !match[2])
-        return send(200, game.view(g, p.id));
+      controller?.touch(g.code);
+      if (req.method === "GET" && !match[2]) return send(200, view(g, p.id));
       if (req.method !== "POST")
         return send(405, { error: "Method not allowed." });
-      const copy = structuredClone(g);
+      let copy = structuredClone(g);
+
+      if (match[2] === "bots") {
+        if (!ai || g.phase !== "lobby" || g.host !== p.id)
+          return send(403, {
+            error: "Only the host can manage AI seats in the lobby.",
+          });
+        if (body.operation === "add") {
+          if (
+            copy.players.length >= maxPlayers ||
+            copy.players.filter((p) => p.bot).length >= ai.MAX_BOTS
+          )
+            throw Error("AI seat limit reached.");
+          const name = ai.AI_NAMES.find(
+            (name) =>
+              !copy.players.some(
+                (p) => p.name.toLowerCase() === name.toLowerCase(),
+              ),
+          );
+          if (!name) throw Error("AI names are already in use.");
+          const bot = game.player(name);
+          bot.bot = true;
+          copy.players.push(bot);
+        } else if (body.operation === "remove") {
+          if (!copy.players.some((p) => p.id === body.target && p.bot))
+            throw Error("Choose an AI seat.");
+          copy.players = copy.players.filter((p) => p.id !== body.target);
+        } else throw Error("Unknown AI setting.");
+        copy.revision++;
+        copy.updated = Date.now();
+        rooms[g.code] = copy;
+        save();
+        return send(200, view(copy, p.id));
+      }
       if (match[2] === "recovery") {
         if (g.host !== p.id)
           return send(403, { error: "Only the host can recover a seat." });
-        const target = copy.players.find((p) => p.id === body.target);
+        const target = copy.players.find((p) => p.id === body.target && !p.bot);
         if (!target) throw Error("Choose a player to recover.");
         const key = issueRecovery(target);
         rooms[g.code] = copy;
@@ -129,9 +205,10 @@ export function startRoomServer({ game, title, publicDir, maxPlayers = 12 }) {
         if (!copy.players.some((p) => p.id === target))
           throw Error("Player not found.");
         copy.players = copy.players.filter((p) => p.id !== target);
-        if (!copy.players.length) delete rooms[g.code];
+        if (!copy.players.some((p) => !p.bot)) delete rooms[g.code];
         else {
-          if (target === g.host) copy.host = copy.players[0].id;
+          if (target === g.host)
+            copy.host = copy.players.find((p) => !p.bot).id;
           copy.revision++;
           copy.updated = Date.now();
           rooms[g.code] = copy;
@@ -139,29 +216,27 @@ export function startRoomServer({ game, title, publicDir, maxPlayers = 12 }) {
         save();
         return send(
           200,
-          match[2] === "leave" ? { left: true } : game.view(copy, p.id),
+          match[2] === "leave" ? { left: true } : view(copy, p.id),
         );
       }
       if (match[2] === "action") {
         const vote =
           body.type === "vote" &&
           g.phase === "vote" &&
-          body.voteId === g.voteId &&
+          sameBallot({ submittedId: body.voteId, currentId: g.voteId }) &&
           body.gameId === g.gameId;
         if (body.type === "vote" && !vote)
           return send(409, {
             error: "This ballot has ended. The table is updating.",
           });
-        if (vote && Object.hasOwn(g.votes, p.id))
-          return send(200, game.view(g, p.id));
-        if (!vote && body.revision !== g.revision)
-          return send(409, { error: "The table changed. Please try again." });
+        if (vote && hasVoted(g.votes, p.id)) return send(200, view(g, p.id));
+        copy = beginAction(g, { revision: body.revision, concurrent: vote });
         game.action(copy, p.id, body.type, body.payload);
         copy.revision++;
         copy.updated = Date.now();
         rooms[g.code] = copy;
         save();
-        return send(200, game.view(copy, p.id));
+        return send(200, view(copy, p.id));
       }
       return send(405, { error: "Method not allowed." });
     } catch (e) {
