@@ -10,6 +10,7 @@ export async function completeJSON({
   title = "Party games",
   maxTokens = 700,
   temperature = 0.6,
+  reasoningEffort = "low",
   timeout = 12000,
   fetchImpl = fetch,
   baseURL = "https://openrouter.ai/api/v1",
@@ -32,7 +33,7 @@ export async function completeJSON({
       max_tokens: maxTokens,
       temperature,
       reasoning: model.includes("glm")
-        ? { effort: "low", exclude: true }
+        ? { effort: reasoningEffort, exclude: true }
         : { enabled: false },
       response_format: { type: "json_object" },
       provider: {

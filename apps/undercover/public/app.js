@@ -12,6 +12,8 @@ let state = null,
   busy = false,
   showSecret = false,
   draft = "",
+  chatDraft = "",
+  guessDraft = "",
   recovery = null;
 const seats = () => readStored("undercover-seats", {}),
   room = () =>
@@ -84,6 +86,21 @@ function entrance() {
 }
 function render() {
   if (!state) return entrance();
+  const focused = document.activeElement?.id;
+  const selection = focused
+    ? {
+        start: document.activeElement.selectionStart,
+        end: document.activeElement.selectionEnd,
+      }
+    : null;
+  const oldMessages = document.querySelector("#messages");
+  const atBottom =
+    !oldMessages ||
+    oldMessages.scrollHeight -
+      oldMessages.scrollTop -
+      oldMessages.clientHeight <
+      40;
+  const oldScroll = oldMessages?.scrollTop || 0;
   const me = state.me,
     host = state.host === me.id;
   let title = "",
@@ -98,7 +115,7 @@ function render() {
         button("Begin game", "start", {}, "primary")
       : "<p>Waiting for the host to begin.</p>";
     if (host && state.ai?.available)
-      controls += `<button id="add-bot" ${state.players.filter((p) => p.bot).length >= state.ai.maxBots || state.players.length >= 12 ? "disabled" : ""}>Add AI player</button><p class="muted">${state.ai.modelAvailable ? "AI players use their own word and the public clues." : "AI provider unavailable: bots use basic fallback clues and random votes."} Up to ${state.ai.maxBots} AI seats. You open voting after discussion.</p>`;
+      controls += `<button id="add-bot" ${state.players.filter((p) => p.bot).length >= state.ai.maxBots || state.players.length >= 12 ? "disabled" : ""}>Add AI player</button><p class="muted">${state.ai.modelAvailable ? "AI players use their own word and the public clues." : "AI provider unavailable: bots use basic fallback clues and random votes."} Up to ${state.ai.maxBots} AI seats. You open voting after discussion.</p><button id="ai-talk">${state.aiComments ? "AI table talk: on" : "AI table talk: off"}</button>`;
     controls += `<button id="leave" class="quiet">Leave seat</button>`;
   } else if (state.phase === "clue") {
     title =
@@ -139,7 +156,7 @@ function render() {
     hint = "Guess the civilian word exactly to win.";
     if (state.guesser === me.id)
       controls =
-        '<form id="guess"><label>Your guess<input name="word" maxlength="80" required autocomplete="off"></label><button class="primary">Guess the word</button></form>';
+        '<form id="guess"><label>Your guess<input id="guess-word" name="word" maxlength="80" required autocomplete="off"></label><button class="primary">Guess the word</button></form>';
   } else if (state.phase === "finished") {
     title =
       state.winner === "civilians"
@@ -173,7 +190,7 @@ function render() {
     )
     .join(
       "",
-    )}</div><aside><p class="eyebrow">THE PUBLIC RECORD</p><h2>Clues & consequences</h2>${
+    )}</div><aside><section class="table-talk"><p class="eyebrow">THE CONVERSATION</p><h2>Table talk</h2><div id="messages" role="log" aria-label="Table talk">${(state.chatMessages ?? []).map((m) => `<article><b>${esc(m.name)}</b>${m.bot ? '<span class="ai-label">AI</span>' : ""}<p>${esc(m.text)}</p></article>`).join("") || '<p class="muted">Compare clues, challenge a suspicion, or ask a bot what they think.</p>'}</div><form id="chat-form"><label for="chat-text">Your message</label><textarea id="chat-text" maxlength="400" rows="3" ${!["lobby", "discussion", "finished"].includes(state.phase) || (!me.alive && state.phase !== "finished") ? "disabled" : ""} placeholder="What sounds suspicious?">${esc(chatDraft)}</textarea><button class="primary" ${!["lobby", "discussion", "finished"].includes(state.phase) || (!me.alive && state.phase !== "finished") ? "disabled" : ""}>Send message</button></form><p class="muted">${!me.alive && state.phase !== "finished" ? "Eliminated players observe silently." : !["lobby", "discussion", "finished"].includes(state.phase) ? "Chat opens after the clue round and pauses for voting." : "Ask a bot by name. AI claims can be mistaken."}</p></section><p class="eyebrow">THE PUBLIC RECORD</p><h2>Clues & consequences</h2>${
     state.lastVote
       ? `<p class="muted">Last ballot · Round ${state.lastVote.round}</p><ul>${Object.entries(
           state.lastVote.counts,
@@ -242,8 +259,68 @@ function render() {
     .querySelector("#add-bot")
     ?.addEventListener("click", () => roomAction("bots", { operation: "add" }));
   document
+    .querySelector("#ai-talk")
+    ?.addEventListener("click", () =>
+      roomAction("bots", { operation: "comments", enabled: !state.aiComments }),
+    );
+  document
+    .querySelector("#chat-text")
+    ?.addEventListener("input", (e) => (chatDraft = e.target.value));
+  document.querySelector("#chat-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendChat();
+  });
+  document.querySelector("#chat-text")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  const guess = document.querySelector("#guess-word");
+  if (guess) {
+    guess.value = guessDraft;
+    guess.oninput = (e) => (guessDraft = e.target.value);
+  }
+  const messages = document.querySelector("#messages");
+  if (messages)
+    messages.scrollTop = atBottom ? messages.scrollHeight : oldScroll;
+  if (focused) {
+    const input = document.getElementById(focused);
+    if (
+      input &&
+      !input.disabled &&
+      ["INPUT", "TEXTAREA"].includes(input.tagName)
+    ) {
+      input.focus({ preventScroll: true });
+      if (
+        selection?.start !== null &&
+        typeof input.setSelectionRange === "function"
+      )
+        try {
+          input.setSelectionRange(selection.start, selection.end);
+        } catch {}
+    }
+  }
+  document
     .querySelector("#leave")
     ?.addEventListener("click", () => roomAction("leave", {}));
+}
+async function sendChat() {
+  if (busy || !chatDraft.trim()) return;
+  busy = true;
+  try {
+    const fresh = await api(`/api/rooms/${session.code}/chat`, {
+      text: chatDraft,
+    });
+    chatDraft = "";
+    if (newerState(state, fresh)) state = fresh;
+    error.textContent = "";
+    render();
+  } catch (e) {
+    fail(e);
+  } finally {
+    busy = false;
+  }
 }
 async function roomAction(type, body) {
   if (busy) return;
@@ -286,6 +363,8 @@ async function act(type, payload) {
     error.textContent = "";
     if (["clue", "restart", "start"].includes(type)) {
       draft = "";
+      chatDraft = "";
+      guessDraft = "";
       showSecret = false;
     }
     render();

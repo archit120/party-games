@@ -1,4 +1,6 @@
-import { chromium } from "/opt/browser-test/node_modules/playwright/index.mjs";
+const { chromium } = await import(
+  process.env.PLAYWRIGHT_MODULE || "playwright"
+);
 import assert from "node:assert/strict";
 const base = process.env.CHECK_URL || "http://127.0.0.1:3102",
   browser = await chromium.launch({

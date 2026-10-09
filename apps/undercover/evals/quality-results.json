@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-09T04:40:27.540Z",
+  "model": "z-ai/glm-5.3-flash",
+  "calls": 30,
+  "reportedOrReservedCost": 0.0023301705999999997,
+  "clues": [
+    {
+      "word": "mirror",
+      "baseline": "reflection",
+      "improved": "smoke",
+      "source": "model"
+    },
+    {
+      "word": "window",
+      "baseline": "glass",
+      "improved": "mood",
+      "source": "basic (Clue quality check rejected candidates)"
+    },
+    {
+      "word": "coffee",
+      "baseline": "morning brew",
+      "improved": "morning",
+      "source": "model"
+    },
+    {
+      "word": "beach",
+      "baseline": "sandcastles",
+      "improved": "tide",
+      "source": "model"
+    },
+    {
+      "word": "violin",
+      "baseline": "It has four strings and a bow",
+      "improved": "rosin",
+      "source": "model"
+    },
+    {
+      "word": "library",
+      "baseline": "quiet shelves of borrowed stories",
+      "improved": "silence",
+      "source": "model"
+    },
+    {
+      "word": "rain",
+      "baseline": "umbrella",
+      "improved": "petrichor",
+      "source": "model"
+    },
+    {
+      "word": "cake",
+      "baseline": "sweet slice at a birthday party",
+      "improved": "crumb",
+      "source": "model"
+    }
+  ],
+  "votes": [
+    {
+      "round": 1,
+      "bot": "ada",
+      "vote": "basil"
+    },
+    {
+      "round": 1,
+      "bot": "basil",
+      "vote": "ada"
+    },
+    {
+      "round": 1,
+      "bot": "cora",
+      "vote": "human"
+    },
+    {
+      "round": 2,
+      "bot": "ada",
+      "vote": "cora"
+    },
+    {
+      "round": 2,
+      "bot": "basil",
+      "vote": "cora"
+    },
+    {
+      "round": 2,
+      "bot": "cora",
+      "vote": "basil"
+    }
+  ],
+  "limitations": "Small prompt sanity check, not a strategic benchmark. Round-one clues are ambiguous; actual hidden roles were not given to the models. The transcript is a reconstructed public fixture, not a replay of original model requests."
+}

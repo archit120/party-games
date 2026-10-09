@@ -159,6 +159,12 @@ export function action(g, id, type, payload = {}) {
     g.gameId = randomUUID();
     g.round = 0;
     g.clues = [];
+    g.chatMessages = [];
+    delete g.lastHumanChat;
+    delete g.chatReplyPlan;
+    delete g.lastChatHandledSeq;
+    delete g.lastAIChatSeq;
+    delete g.lastAIChatAt;
     g.log = [];
     delete g.lastVote;
     delete g.winner;
@@ -226,6 +232,12 @@ export function action(g, id, type, payload = {}) {
     delete g.winner;
     delete g.guesser;
     g.clues = [];
+    g.chatMessages = [];
+    delete g.lastHumanChat;
+    delete g.chatReplyPlan;
+    delete g.lastChatHandledSeq;
+    delete g.lastAIChatSeq;
+    delete g.lastAIChatAt;
     g.log = [];
     g.votes = {};
     delete g.lastVote;
@@ -233,6 +245,8 @@ export function action(g, id, type, payload = {}) {
       p.alive = true;
       delete p.word;
       delete p.role;
+      delete p.lastDiscussionRound;
+      delete p.lastChatReplySeq;
     }
   } else need(false);
 }
@@ -267,6 +281,18 @@ export function view(g, id) {
     order: g.order,
     clues: g.clues,
     log: g.log,
+    aiComments: g.aiComments !== false,
+    chatMessages: (g.chatMessages ?? []).map(
+      ({ messageId, id, name, text, at, bot, round }) => ({
+        messageId,
+        id,
+        name,
+        text,
+        at,
+        bot,
+        round,
+      }),
+    ),
     candidates: g.phase === "vote" ? g.candidates : [],
     myVote: g.votes?.[id] ?? null,
     runoff: g.runoff,

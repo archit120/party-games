@@ -58,20 +58,19 @@ test("shared provider request is bounded; clue output cannot directly disclose w
     apiKey: "test",
     fetchImpl: async (url, options) => {
       request = JSON.parse(options.body);
-      return response({ choice: 0, text: "A familiar association." });
+      return response({ choice: 0, text: "contrast" });
     },
   });
   assert.equal(d.choice.type, "clue");
   assert.equal(d.cost, 0.001);
-  assert.equal(request.reasoning.effort, "low");
-  assert.equal(request.max_tokens, 250);
+  assert.equal(request.reasoning.effort, "medium");
+  assert.equal(request.max_tokens, 700);
   assert.equal(request.provider.max_price.completion, 0.6);
   await assert.rejects(
     () =>
       chooseWithModel(v, {
         apiKey: "test",
-        fetchImpl: async () =>
-          response({ choice: 0, text: "My word is " + p.word }),
+        fetchImpl: async () => response({ choice: 0, text: p.word }),
       }),
     /disclosed/,
   );
@@ -146,7 +145,7 @@ test("worker pauses without humans, discards stale replies, and reserves once", 
   assert.equal(requests, 1);
   g.gameId = "new-game";
   resolve({
-    choice: { type: "clue", payload: { text: "A distant memory." } },
+    choice: { type: "clue", payload: { text: "ritual" } },
     source: "model",
   });
   await settle();

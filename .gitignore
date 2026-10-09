@@ -3,3 +3,7 @@ node_modules/
 *.png
 *.webm
 .env*
+*.pem
+*.key
+secrets/
+.secrets/

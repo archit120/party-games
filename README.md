@@ -1,89 +1,86 @@
 # Party games
 
-One repository for three independently deployed multiplayer games:
+Three independently runnable multiplayer games in one Node.js repository:
 
-| Game | URL | Players |
+| App | Players | Features |
 | --- | --- | --- |
-| Secret Hitler | https://secret-hitler.172.245.72.181.sslip.io | 5–10, with existing optional AI seats |
-| Coup | https://coup.172.245.72.181.sslip.io | 2–6 humans |
-| Undercover | https://undercover.172.245.72.181.sslip.io | 3–12, with optional AI seats |
+| Secret Hitler | 5–10 | Existing rules, private roles, optional AI seats and table talk |
+| Coup | 2–6 | Claims, challenges, blocks, exchanges and private influence cards |
+| Undercover | 3–12 | Related words, optional Mr. White, clue rounds, private votes, AI seats and chat |
 
-## Work locally
+## Run
 
-Node.js 22 or newer. No third-party runtime dependencies.
+Requires Node.js 22 or later. No third-party runtime dependencies.
 
 ```sh
 npm test
 npm run start:undercover
-# Or select a game with the common launcher:
+# Or choose an app and port:
 GAME=secret-hitler PORT=3100 npm start
 GAME=coup PORT=3101 npm start
 GAME=undercover PORT=3102 npm start
 ```
 
-Default `npm start` launches Undercover. Each app uses its own `apps/<game>/data` locally. In production set an absolute `DATA_DIR`; never share one data directory between games or running processes.
+Default `npm start` launches Undercover. Open the corresponding localhost port. Each player joins on a separate browser/device. Rooms and seats survive refresh; keep browser storage for recovery. Use a voice call or play together for discussion.
 
-## Layout and boundaries
+Each app defaults to its own `apps/<game>/data` directory. Set an absolute `DATA_DIR` in production. Never share a data directory between games or server instances. Room files contain private words, roles and bearer session tokens: keep them outside version control and private. Rooms expire after seven days of inactivity.
 
-- `apps/secret-hitler`: existing game rules, AI, chat, UI and regression suite.
-- `apps/coup`: existing rules, UI, and regression suite. Original Coup Git history is retained.
-- `apps/undercover`: related-word game with optional Mr. White, server-enforced clue turns, secret ballots, runoffs, elimination, guessing and rematches.
-- `packages/ai`: shared provider requests, JSON parsing, bounded context/output, timeouts, price ceilings, persistent reservation budgets, and worker activity/concurrency gates extracted from Secret Hitler. Each game retains its own prompts, legal actions and private context.
-- `packages/core`: atomic private JSON storage, HTTP security and body limits, authentication, room codes, retry-safe joins, expiring seat recovery, ballot collection/tally/identity checks, revision-checked copy-before-mutation, and browser request/storage/escaping/poll guards. Shared joins/recovery and browser request behavior originate in Secret Hitler.
-- `packages/core/room-server.js`: reusable room lifecycle server using Secret Hitler's endpoint and storage conventions, currently used by Undercover. Secret Hitler keeps its AI/chat and election-specific orchestration; Coup keeps its established API adapter.
+## Shared infrastructure
 
-Game rules and private views stay in their own apps. The shared package never serializes an entire room to clients. Refactoring preserves Secret Hitler's `rooms.json`, Coup's per-room JSON files, browser storage keys, routes, session tokens, and domains. Both existing games consume the common storage, HTTP, auth, and browser helpers. This is deliberately a gradual extraction, not a universal game engine.
+- `apps/`: game rules, authorized private views, UI, prompts and game-specific tests.
+- `packages/core/`: atomic JSON storage, secure HTTP helpers, room codes, authentication, retry-safe joins, expiring seat recovery, revision-checked action copies, ballot collection/tally/identity checks, public chat storage/rate limits/reply selection, and browser transport/poll guards.
+- `packages/core/room-server.js`: reusable room lifecycle server used by Undercover. Secret Hitler retains its AI/chat and election-specific adapter; Coup retains its established API and file format. All consume common helpers.
+- `packages/ai/`: bounded JSON provider requests, timeouts, pricing caps, persistent spending reservations, and worker activity/concurrency gates. Games control their own prompts, legal moves and private context.
 
-Undercover shows each player only their word (or no word for Mr. White), with no team label for word-holders. Words and all remaining roles are revealed at game end. Ballots expose participation and final totals, not other players' choices. Impostors win at parity; civilians win after eliminating all impostors. Mr. White gets one exact, case-insensitive guess on elimination. One runoff is allowed; a second tie starts the next round without elimination. Host chooses 1–3 Undercover players plus optional Mr. White, with a required civilian majority. Undercover supports up to four optional AI seats; Coup remains human-only. Neither app includes voice chat. Disconnected human players must recover their seats to continue. The Undercover host can open the ballot while eliminated, allowing games with AI seats to continue.
+Game outcomes stay separate: Secret Hitler uses a strict yes/no majority; Undercover uses elimination totals and runoffs. Shared transport always sends a game-specific private view, never raw persisted room state. Existing app routes, storage schemas and browser storage keys remain compatible.
 
-## Deploy from this repository
+## AI
 
-All apps use the root Dockerfile and the same commit, selected with a build argument. They remain separate Dokku apps on `172.245.72.181`, each limited to 128 MB with a separate `/app/data` mount. Do not deploy from the old standalone directories or the nested app directories.
+Set `OPENROUTER_API_KEY` in the server environment, never in browser assets or source files. `AI_MODEL` defaults to `z-ai/glm-5.3-flash`. Secret Hitler retains low reasoning; Undercover requests medium reasoning for gameplay and chat.
+
+Each app has an independent ledger. `AI_DAILY_BUDGET_USD` defaults to $0.50 per UTC day, with limits of 120 paid requests per room and 1,000 per day. Reservations persist before requests; missing costs retain their reservation. Workers process two rooms concurrently, one request chain per room, pause after 60 seconds without a human poll, and discard obsolete replies.
+
+Undercover bots see only their word (or none), public clues, public discussion, and revealed roles. They generate clues freely; there is no predefined clue bank. One-word clues are checked for direct word disclosure and repetition; a separately budgeted model review assesses candidates. Bots discuss completed clue rounds and answer human messages, preferring named bots. They cannot hear external voice calls. Chat pauses during clue turns, ballots and Mr. White guesses; eliminated humans observe silently until the game ends. AI table talk can be toggled in the lobby.
+
+Provider failure, invalid output or exhausted budgets produce labeled basic gameplay fallback; optional chat is skipped. AI clue quality and strategy are experimental. Small evaluation results in `apps/undercover/evals/` show remaining weaknesses and are not a benchmark or guarantee of good play.
+
+## Deploy
+
+Build the root Dockerfile with `--build-arg GAME=undercover` (or `coup` / `secret-hitler`). The container runs as UID 1000, listens on `PORT` (default 3000), and exposes `/health`. Mount a separate writable persistent directory at `/app/data`. Run one web process per data directory. File-backed deployments require stopping the old writer before starting its replacement and briefly interrupt service.
+
+Example Dokku setup, substituting your own app, host and domain:
 
 ```sh
-# Per app, one-time setup (GAME is secret-hitler, coup, or undercover):
-dokku docker-options:add GAME build '--build-arg GAME=GAME'
-# Each remote targets its corresponding app; push from this repo:
-git push dokku-secret-hitler main
-git push dokku-coup main
-git push dokku-undercover main
+dokku apps:create YOUR_APP
+dokku storage:ensure-directory --chown heroku YOUR_APP
+dokku storage:mount YOUR_APP /var/lib/dokku/data/storage/YOUR_APP:/app/data
+dokku ports:set YOUR_APP http:80:3000
+dokku checks:disable YOUR_APP
+dokku domains:set YOUR_APP game.example.com
+dokku docker-options:add YOUR_APP build '--build-arg GAME=undercover'
+dokku git:set YOUR_APP deploy-branch main
+# Deploy this repository to your app's Git remote, then configure HTTPS.
 ```
 
-The example `GAME` placeholders must be replaced literally, e.g. `dokku docker-options:add coup build '--build-arg GAME=coup'`. Storage paths are `/var/lib/dokku/data/storage/<game>`. Create new directories with `dokku storage:ensure-directory --chown heroku GAME` (UID 1000). Use `http:80:3000`, one web instance, and disable zero-downtime checks to avoid concurrent file writers. Let’s Encrypt supplies HTTPS and auto-renewal. The Docker build preserves Secret Hitler's custom Nginx template and app healthchecks. Its existing HTTP access remains available for legacy browser sessions.
-
-Updates briefly restart the selected app. Existing game state and sessions reload from their unchanged mounts. Before migration, backups were made inside the existing apps' data mounts. Keep backups private. To roll back, deploy the previous recorded Git commit/image with that app's previous Docker build options; data needs no format downgrade. The old source directories are retained as snapshots, not active development copies.
+For Secret Hitler, configure `nginx-conf-sigil-path` as `apps/secret-hitler/nginx.conf.sigil` and `appjson-path` as `apps/secret-hitler/app.json`. Its template supports legacy HTTP sessions; browser storage differs between HTTP and HTTPS. Other apps can use the platform's default Nginx template. Configure certificates and secrets using your host's administration tools. Back up private data before changing deployments.
 
 ## Validation
 
-`npm test` runs shared tests and all three apps' suites. Includes hundreds of full simulations, private-view isolation, role and action rules, concurrent ballots, stale action rejection, HTTP authentication, retry-safe joins, recovery and persistence.
+`npm test` runs shared infrastructure and all three game suites. Tests cover private views, complete game simulations, out-of-order replies, session changes during polling, duplicate joins, concurrent votes, stale ballots, action isolation, origins, proxy errors, seat recovery, persistence, AI privacy and budget handling, and chat permissions/stale replies.
 
-Browser tests use the container's Playwright/Chromium installation:
+Browser checks require a local installation of Playwright and Chromium. Set `PLAYWRIGHT_MODULE` to its module path if it is not resolvable as `playwright`; set `CHECK_URL` to a running test app:
 
 ```sh
-PLAYWRIGHT_MODULE=/opt/browser-test/node_modules/playwright/index.mjs CHECK_URL=http://127.0.0.1:3100 node apps/secret-hitler/browser-tests/invites.mjs
-PLAYWRIGHT_MODULE=/opt/browser-test/node_modules/playwright/index.mjs node apps/secret-hitler/browser-tests/recovery.mjs
-CHECK_URL=http://127.0.0.1:3101 node apps/coup/browser-tests/smoke.mjs
-CHECK_URL=http://127.0.0.1:3102 node apps/undercover/browser-tests/smoke.mjs
+CHECK_URL=http://localhost:3100 node apps/secret-hitler/browser-tests/invites.mjs
+node apps/secret-hitler/browser-tests/recovery.mjs
+CHECK_URL=http://localhost:3101 node apps/coup/browser-tests/smoke.mjs
+CHECK_URL=http://localhost:3102 node apps/undercover/browser-tests/smoke.mjs
+CHECK_URL=http://localhost:3102 node apps/undercover/browser-tests/bots.mjs
+CHECK_URL=http://localhost:3102 node apps/undercover/browser-tests/chat.mjs
 ```
 
-Browser smoke tests create disposable rooms; use local servers for routine runs. Undercover's smoke checks five isolated browsers, optional Mr. White, private reveal/hide, refresh recovery, clue turns, ballots, and mobile layout.
+Browser tests create isolated test rooms. Bot/chat model checks require a configured provider; mocked unit tests do not. Evaluation scripts make paid requests only when explicitly run with a provider key.
 
 ## Attribution
 
-Shared components extracted from the existing Secret Hitler adaptation retain its CC BY-NC-SA 4.0 license; see LICENSE and the individual app documentation. Secret Hitler is by Mike Boxleiter, Tommy Maranges and Mac Schubert. Coup is designed by Rikki Tahta. Undercover is an original implementation of the related-word social deduction format with original UI and curated word pairs. No official game art is included.
-
-## AI seats
-
-Secret Hitler and Undercover use the shared AI layer with `OPENROUTER_API_KEY` and optional `AI_MODEL` (default `z-ai/glm-5.3-flash`). Budget ledgers remain independent per app: `AI_DAILY_BUDGET_USD` defaults to $0.50 per UTC day, with 120 paid requests per room and 1,000 per day. Reservations persist before a request; unknown costs keep their reservation. Workers allow two rooms concurrently, one in-flight decision per room, stop after 60 seconds without a human poll, and reject stale results.
-
-Undercover bots see only their assigned word (or no word), public clues, public elimination information and legal actions. They generate clues, vote and make Mr. White guesses. They never receive the other word, unrevealed roles, or word-pair list. Direct disclosures of their own word are rejected. Provider failures, invalid output or exhausted budgets use labeled basic fallback clues/random votes; these are deliberately weak. The human host opens discussion ballots, including when eliminated. AI cannot hear external voice discussions. Secret Hitler's game-specific comment review and strategic memory remain in its adapter.
-
-## High-risk infrastructure checks
-
-Tests explicitly cover out-of-order poll responses, switching sessions while a poll is in flight, stale authentication errors, duplicate joins, private ballot participation, simultaneous votes with a shared revision, stale ballots after a runoff, illegal actions leaving room state unchanged, invalid origins, HTML proxy errors, persistence across restarts, and expiring/replaced recovery links. Game-specific suites cover private-view filtering; the shared transport never receives raw room state for serialization.
-
-## Migration checkpoint (2026-10-09)
-
-Canonical repository: https://github.com/archit120/party-games (private). Pre-migration Secret Hitler deployed commit: `7319389118433f7ce6f4d726c7352f2441e2b352` on its retained Dokku `master` branch. Its deploy branch is now `main`. Pre-migration Coup: `e1f431e` (retained in this repository's history). Verified private JSON backups are in each existing app's `/app/data/migration-backup-20261009/`. No saved-state format changes were needed.
-
-75 automated tests pass (11 shared, 39 Secret Hitler, 10 Coup, 15 Undercover). Browser checks cover original Secret Hitler invites/recovery, Coup multiplayer, five-player Undercover, and one-human/two-bot Undercover. The live Undercover model check observed model-generated decisions for both AI players.
+See LICENSE and individual app documentation. Shared components extracted from the Secret Hitler adaptation retain its CC BY-NC-SA 4.0 license. Secret Hitler is by Mike Boxleiter, Tommy Maranges and Mac Schubert. Coup is designed by Rikki Tahta. Undercover is an original implementation of the related-word social deduction format with an original UI and a small hand-written word-pair list. No official game art is included.

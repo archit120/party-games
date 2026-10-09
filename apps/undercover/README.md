@@ -7,3 +7,5 @@ Players privately reveal their words, take turns entering short clues, discuss, 
 Room links and seats survive refresh. The host can issue 15-minute private recovery links, remove lobby players, and transfer hosting by leaving the lobby. Keep recovery links private. The host can add up to four AI players. They receive only their own word and public clues, and use the shared AI provider/budget/scheduler layer. Failed or budget-limited requests use clearly labeled basic fallback. No timers or voice chat are included. A missing player must return or recover their seat to continue.
 
 Run `npm run start:undercover` from the repo root. See [deployment and tests](../../README.md).
+
+Public chat is available in the lobby, discussion and after the game. AI players volunteer observations and answer human messages, with shared cooldowns, spending limits and stale-response checks. The host can toggle AI table talk in the lobby. Chat pauses during clue turns, votes and the Mr. White guess. Clues are model-generated; no predefined clue bank or extra-round rule is used. See the evaluation artifacts for limitations.

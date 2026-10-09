@@ -19,6 +19,7 @@ export function startRoomServer({
   publicDir,
   maxPlayers = 12,
   ai,
+  addChat,
 }) {
   const dir = ensureDataDir(process.env.DATA_DIR || "./data"),
     file = `${dir}/rooms.json`,
@@ -137,7 +138,7 @@ export function startRoomServer({
         });
       }
       const match = url.pathname.match(
-        /^\/api\/rooms\/([A-Z]{6})(?:\/(action|leave|kick|recovery|bots))?$/,
+        /^\/api\/rooms\/([A-Z]{6})(?:\/(action|leave|kick|recovery|bots|chat))?$/,
       );
       if (!match) return send(404, { error: "Not found." });
       const g = rooms[match[1]],
@@ -152,6 +153,15 @@ export function startRoomServer({
         return send(405, { error: "Method not allowed." });
       let copy = structuredClone(g);
 
+      if (match[2] === "chat") {
+        if (!addChat) return send(404, { error: "Chat is unavailable." });
+        addChat(copy, p.id, body.text);
+        copy.updated = Date.now();
+        copy.revision++;
+        rooms[g.code] = copy;
+        save();
+        return send(200, view(copy, p.id));
+      }
       if (match[2] === "bots") {
         if (!ai || g.phase !== "lobby" || g.host !== p.id)
           return send(403, {
@@ -177,7 +187,12 @@ export function startRoomServer({
           if (!copy.players.some((p) => p.id === body.target && p.bot))
             throw Error("Choose an AI seat.");
           copy.players = copy.players.filter((p) => p.id !== body.target);
-        } else throw Error("Unknown AI setting.");
+        } else if (
+          body.operation === "comments" &&
+          typeof body.enabled === "boolean"
+        )
+          copy.aiComments = body.enabled;
+        else throw Error("Unknown AI setting.");
         copy.revision++;
         copy.updated = Date.now();
         rooms[g.code] = copy;
